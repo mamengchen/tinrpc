@@ -81,6 +81,17 @@ cmake .. && make -j$(nproc)
 ./rpc                                    # 端口 8080，启动全部游戏模块
 ```
 
+### Godot 默认世界（状态同步）
+
+协议与流程见 [`docs/superpowers/specs/2026-08-05-godot-login-move-design.md`](docs/superpowers/specs/2026-08-05-godot-login-move-design.md)。  
+Windows Godot 接 WSL：[`docs/godot-wsl-client-guide.md`](docs/godot-wsl-client-guide.md)。  
+客户端工程：`godot_client/`（Login → 默认世界 → Move 广播）。
+
+```bash
+# 服务端回归（默认世界）
+./test_world_service && ./test_world_e2e
+```
+
 ### 运行压测
 
 ```bash
