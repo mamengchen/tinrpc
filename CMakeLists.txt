@@ -60,6 +60,7 @@ add_library(rpc_lib STATIC
     src/game/db_worker.cpp
     src/game/account_store.cpp
     src/game/player_store.cpp
+    src/game/scene_store.cpp
     src/game/mongo_runtime.cpp
     src/game/timer_manager.cpp
     src/game/game_room.cpp
@@ -277,3 +278,8 @@ add_executable(test_player_store
     tests/test_player_store.cpp
 )
 target_link_libraries(test_player_store rpc_lib pthread)
+
+add_executable(test_scene_store
+    tests/test_scene_store.cpp
+)
+target_link_libraries(test_scene_store rpc_lib pthread)

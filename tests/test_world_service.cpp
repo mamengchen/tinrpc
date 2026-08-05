@@ -91,6 +91,7 @@ void TestGatherAndBuildAuthoritativeState() {
     std::vector<std::pair<std::string, std::string>> sent;
     game::WorldService world([&](const std::string& to, const std::string& method,
                                  const std::vector<uint8_t>&) { sent.emplace_back(to, method); });
+    world.SeedDefaultScene();
     world.Enter("a", "A", 1000);
     world.Enter("b", "B", 1000);
     CHECK(world.TryMove("a", -4.f, 0.f, -4.f, 0.f, 2000).success);
@@ -116,6 +117,7 @@ void TestGatherAndBuildAuthoritativeState() {
 void TestGatherDistanceAndBuildCostReject() {
     game::WorldService world([](const std::string&, const std::string&,
                                 const std::vector<uint8_t>&) {});
+    world.SeedDefaultScene();
     world.Enter("a", "A", 1000);
     auto gather = world.TryGather("a", "tree_4");
     CHECK(!gather.success);

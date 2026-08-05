@@ -42,6 +42,8 @@ GameService::GameService() {
                                                EnvOr("TINRPC_MONGO_DB", "tinrpc"));
     players_ = std::make_unique<PlayerStore>(EnvOr("TINRPC_MONGO_URI", "mongodb://127.0.0.1:27017"),
                                              EnvOr("TINRPC_MONGO_DB", "tinrpc"));
+    scenes_ = std::make_unique<SceneStore>(EnvOr("TINRPC_MONGO_URI", "mongodb://127.0.0.1:27017"),
+                                           EnvOr("TINRPC_MONGO_DB", "tinrpc"));
     std::string mongo_err;
     if (!accounts_->Init(&mongo_err)) {
         printf("[GameService] WARN: Mongo accounts init failed: %s\n", mongo_err.c_str());
@@ -50,6 +52,11 @@ GameService::GameService() {
     if (!players_->Init(&mongo_err)) {
         printf("[GameService] WARN: Mongo players init failed: %s\n", mongo_err.c_str());
     }
+    mongo_err.clear();
+    if (!scenes_->Init(&mongo_err)) {
+        printf("[GameService] WARN: Mongo scenes init failed: %s\n", mongo_err.c_str());
+    }
+    LoadOrSeedScene();
     db_worker_ = std::make_unique<DbWorker>(&loop_);
     db_worker_->Start();
 
@@ -198,6 +205,10 @@ void GameService::HandleGather(const rpc::Frame& frame, rpc::Connection* conn) {
         return;
     }
     const auto result = world_->TryGather(player_it->second, req.resource_id());
+    if (result.success) {
+        SavePlayerAsync(player_it->second);
+        SaveSceneAsync();
+    }
     GatherRes res;
     res.set_success(result.success);
     res.set_error_msg(result.error_msg);
@@ -229,6 +240,10 @@ void GameService::HandlePlaceBuilding(const rpc::Frame& frame, rpc::Connection* 
     const auto result = world_->TryPlaceBuilding(
         player_it->second, static_cast<int>(req.building_type()), req.position().x(),
         req.position().y(), req.position().z(), req.yaw());
+    if (result.success) {
+        SavePlayerAsync(player_it->second);
+        SaveSceneAsync();
+    }
     PlaceBuildingRes res;
     res.set_success(result.success);
     res.set_error_msg(result.error_msg);
@@ -423,6 +438,34 @@ void GameService::SavePlayerAsync(const std::string& player_id) {
     });
 }
 
+void GameService::SaveSceneAsync() {
+    SceneSnapshot snap = world_->ExportScene("default");
+    db_worker_->Post([this, snap]() {
+        auto r = scenes_->Upsert(snap);
+        if (!r.ok) {
+            printf("[GameService] WARN: save scene failed: %s\n", r.error_msg.c_str());
+        }
+    });
+}
+
+void GameService::LoadOrSeedScene() {
+    auto snap = scenes_->Load("default");
+    if (snap.found && (!snap.resources.empty() || !snap.buildings.empty())) {
+        world_->LoadScene(snap);
+        printf("[GameService] 已加载场景存档: resources=%zu buildings=%zu\n", snap.resources.size(),
+               snap.buildings.size());
+    } else {
+        world_->SeedDefaultScene();
+        printf("[GameService] 使用默认场景种子\n");
+        // 首次写入，便于下次启动恢复
+        auto seeded = world_->ExportScene("default");
+        auto r = scenes_->Upsert(seeded);
+        if (!r.ok) {
+            printf("[GameService] WARN: seed scene upsert failed: %s\n", r.error_msg.c_str());
+        }
+    }
+}
+
 void GameService::OnPlayerDisconnected(int fd) {
     active_conns_.erase(fd);
 
@@ -508,6 +551,13 @@ void GameService::Run(uint16_t port) {
 }
 
 void GameService::Stop() {
+    if (world_ && scenes_) {
+        auto snap = world_->ExportScene("default");
+        auto r = scenes_->Upsert(snap);
+        if (!r.ok) {
+            printf("[GameService] WARN: stop scene save failed: %s\n", r.error_msg.c_str());
+        }
+    }
     if (db_worker_)
         db_worker_->Stop();
     loop_.Stop();
