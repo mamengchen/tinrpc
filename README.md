@@ -85,12 +85,18 @@ cmake .. && make -j$(nproc)
 
 协议与流程见 [`docs/superpowers/specs/2026-08-05-godot-login-move-design.md`](docs/superpowers/specs/2026-08-05-godot-login-move-design.md)。  
 Windows Godot 接 WSL：[`docs/godot-wsl-client-guide.md`](docs/godot-wsl-client-guide.md)。  
-客户端工程：`godot_client/`（Login → 默认世界 → Move 广播）。
+客户端工程：`godot_client/`（Register/Login → 默认世界 → Move 广播）。
 
 ```bash
-# 服务端回归（默认世界）
-./test_world_service && ./test_world_e2e
+# 依赖：mongod + libmongoc-dev
+# sudo systemctl start mongod
+export TINRPC_MONGO_URI=mongodb://127.0.0.1:27017
+export TINRPC_MONGO_DB=tinrpc
+
+./test_account_store && ./test_world_service && ./test_world_e2e
 ```
+
+账号协议见 [`docs/superpowers/specs/2026-08-05-mongo-account-auth-design.md`](docs/superpowers/specs/2026-08-05-mongo-account-auth-design.md)：`Register` / `Login(username,password)`。
 
 ### 运行压测
 

@@ -87,11 +87,51 @@ void TestMoveBroadcastAndLeave() {
     CHECK(!world.HasPlayer("a"));
 }
 
+void TestGatherAndBuildAuthoritativeState() {
+    std::vector<std::pair<std::string, std::string>> sent;
+    game::WorldService world([&](const std::string& to, const std::string& method,
+                                 const std::vector<uint8_t>&) { sent.emplace_back(to, method); });
+    world.Enter("a", "A", 1000);
+    world.Enter("b", "B", 1000);
+    CHECK(world.TryMove("a", -4.f, 0.f, -4.f, 0.f, 2000).success);
+
+    auto gather = world.TryGather("a", "tree_1");
+    CHECK(gather.success);
+    CHECK(gather.remaining == 5);
+    CHECK(gather.wood == 7);
+    bool resource_broadcast = false;
+    for (const auto& [to, method] : sent) {
+        if (to == "b" && method == "ResourceChangedNtf") resource_broadcast = true;
+    }
+    CHECK(resource_broadcast);
+
+    auto floor = world.TryPlaceBuilding("a", 1, -3.f, 0.f, -4.f, 0.f);
+    CHECK(floor.success);
+    CHECK(floor.wood == 5);
+    CHECK(!floor.building_id.empty());
+    auto occupied = world.TryPlaceBuilding("a", 1, -3.f, 0.f, -4.f, 0.f);
+    CHECK(!occupied.success);
+}
+
+void TestGatherDistanceAndBuildCostReject() {
+    game::WorldService world([](const std::string&, const std::string&,
+                                const std::vector<uint8_t>&) {});
+    world.Enter("a", "A", 1000);
+    auto gather = world.TryGather("a", "tree_4");
+    CHECK(!gather.success);
+    auto first = world.TryPlaceBuilding("a", 3, 1.f, 0.f, 0.f, 0.f);
+    CHECK(first.success);
+    auto second = world.TryPlaceBuilding("a", 3, 2.f, 0.f, 0.f, 0.f);
+    CHECK(!second.success);
+}
+
 int main() {
     printf("=== test_world_service ===\n");
     RunTest("TestEnterSnapshotAndNotify", TestEnterSnapshotAndNotify);
     RunTest("TestMoveSpeedReject", TestMoveSpeedReject);
     RunTest("TestMoveBroadcastAndLeave", TestMoveBroadcastAndLeave);
+    RunTest("TestGatherAndBuildAuthoritativeState", TestGatherAndBuildAuthoritativeState);
+    RunTest("TestGatherDistanceAndBuildCostReject", TestGatherDistanceAndBuildCostReject);
     printf("Result: %d passed, %d failed\n", g_passed, g_failed);
     return g_failed ? 1 : 0;
 }

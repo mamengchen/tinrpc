@@ -54,14 +54,16 @@ game::PlayerInfo MakePlayer(const std::string& id, const std::string& name, game
 void TestLoginRoundtrip() {
     // 请求
     game::LoginReq req;
-    req.set_token("test_token_abc123");
+    req.set_username("test_token_abc123");
+        req.set_password("testpass123");
 
     std::string buf;
     assert(req.SerializeToString(&buf));
 
     game::LoginReq req2;
     assert(req2.ParseFromString(buf));
-    assert(req2.token() == "test_token_abc123");
+    assert(req2.username() == "test_token_abc123");
+    assert(req2.password() == "testpass123");
 
     // 响应（成功）
     game::LoginRes res;

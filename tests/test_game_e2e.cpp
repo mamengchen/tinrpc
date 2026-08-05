@@ -225,11 +225,11 @@ void TestTwoClients() {
         if (f.method_name == "Login") {
             game::LoginReq req;
             req.ParseFromArray(f.body.data(), static_cast<int>(f.body.size()));
-            players[req.token()] = c;
+            players[req.username()] = c;
 
             game::LoginRes res;
             res.set_success(true);
-            res.mutable_player_info()->set_player_id(req.token());
+            res.mutable_player_info()->set_player_id(req.username());
             std::string buf;
             res.SerializeToString(&buf);
             auto rsp = rpc::ProtocolFrame::Encode(f.request_id, rpc::MessageType::Response, "Login",
@@ -262,7 +262,8 @@ void TestTwoClients() {
     // A 登录
     {
         game::LoginReq req;
-        req.set_token("player_a");
+        req.set_username("player_a");
+        req.set_password("testpass123");
         std::string buf;
         req.SerializeToString(&buf);
         ClientSendReq(fdA, 1, "Login", std::vector<uint8_t>(buf.begin(), buf.end()));
@@ -276,7 +277,8 @@ void TestTwoClients() {
     // B 登录
     {
         game::LoginReq req;
-        req.set_token("player_b");
+        req.set_username("player_b");
+        req.set_password("testpass123");
         std::string buf;
         req.SerializeToString(&buf);
         ClientSendReq(fdB, 2, "Login", std::vector<uint8_t>(buf.begin(), buf.end()));
@@ -313,11 +315,11 @@ void TestE2ERoomLifecycle() {
         if (f.method_name == "Login") {
             game::LoginReq req;
             req.ParseFromArray(f.body.data(), static_cast<int>(f.body.size()));
-            conns[req.token()] = c;
+            conns[req.username()] = c;
 
             game::LoginRes res;
             res.set_success(true);
-            res.mutable_player_info()->set_player_id(req.token());
+            res.mutable_player_info()->set_player_id(req.username());
             std::string buf;
             res.SerializeToString(&buf);
             auto rsp = rpc::ProtocolFrame::Encode(f.request_id, rpc::MessageType::Response, "Login",
@@ -475,7 +477,8 @@ void TestE2ERoomLifecycle() {
     // Step 1: A 登录
     {
         game::LoginReq req;
-        req.set_token("player_a");
+        req.set_username("player_a");
+        req.set_password("testpass123");
         std::string buf;
         req.SerializeToString(&buf);
         ClientSendReq(fdA, 1, "Login", std::vector<uint8_t>(buf.begin(), buf.end()));
@@ -486,7 +489,8 @@ void TestE2ERoomLifecycle() {
     // Step 2: B 登录
     {
         game::LoginReq req;
-        req.set_token("player_b");
+        req.set_username("player_b");
+        req.set_password("testpass123");
         std::string buf;
         req.SerializeToString(&buf);
         ClientSendReq(fdB, 2, "Login", std::vector<uint8_t>(buf.begin(), buf.end()));

@@ -20,6 +20,17 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # ============================================================
 find_package(Protobuf REQUIRED)
 
+# libmongoc / libbson（Ubuntu: libmongoc-dev）
+find_path(MONGOC_INCLUDE_DIR mongoc/mongoc.h
+    PATHS /usr/include/libmongoc-1.0 /usr/local/include/libmongoc-1.0)
+find_path(BSON_INCLUDE_DIR bson/bson.h
+    PATHS /usr/include/libbson-1.0 /usr/local/include/libbson-1.0)
+find_library(MONGOC_LIBRARY NAMES mongoc-1.0)
+find_library(BSON_LIBRARY NAMES bson-1.0)
+if(NOT MONGOC_INCLUDE_DIR OR NOT BSON_INCLUDE_DIR OR NOT MONGOC_LIBRARY OR NOT BSON_LIBRARY)
+    message(FATAL_ERROR "libmongoc/libbson not found. Install: sudo apt-get install -y libmongoc-dev libbson-dev")
+endif()
+
 # 用 protoc 从 .proto 生成 C++ 代码
 protobuf_generate_cpp(PROTO_SRCS PROTO_HDRS proto/game.proto)
 
@@ -30,6 +41,7 @@ include_directories(${CMAKE_SOURCE_DIR}/include)
 # Protobuf 生成的头文件在 build 目录下
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
 include_directories(${Protobuf_INCLUDE_DIRS})
+include_directories(${MONGOC_INCLUDE_DIR} ${BSON_INCLUDE_DIR})
 
 # ============================================================
 # RPC 核心库（静态库，后续所有模块逐步加入）
@@ -45,6 +57,8 @@ add_library(rpc_lib STATIC
     src/thread_pool.cpp
     src/dispatch.cpp
     src/rpc_client.cpp
+    src/game/db_worker.cpp
+    src/game/account_store.cpp
     src/game/timer_manager.cpp
     src/game/game_room.cpp
     src/game/room_manager.cpp
@@ -63,7 +77,7 @@ add_library(rpc_lib STATIC
     ${PROTO_SRCS}
 )
 
-target_link_libraries(rpc_lib ${Protobuf_LIBRARIES})
+target_link_libraries(rpc_lib ${Protobuf_LIBRARIES} ${MONGOC_LIBRARY} ${BSON_LIBRARY} crypt)
 
 # ============================================================
 # 主程序（暂时保留空壳，后续填充）
@@ -251,3 +265,8 @@ add_executable(test_world_e2e
     tests/test_world_e2e.cpp
 )
 target_link_libraries(test_world_e2e rpc_lib pthread)
+
+add_executable(test_account_store
+    tests/test_account_store.cpp
+)
+target_link_libraries(test_account_store rpc_lib pthread)
