@@ -6,11 +6,19 @@
 #include <sys/epoll.h>
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 
 namespace game {
+namespace {
+
+const char* EnvOr(const char* key, const char* fallback) {
+    const char* v = std::getenv(key);
+    return (v && *v) ? v : fallback;
+}
+
+} // namespace
 
 GameService::GameService() {
-    // 构造 Broadcast（发送回调在 Run() 中注册 PlayerConn 后才生效）
     auto send_fn = [this](const std::string& player_id, const std::vector<uint8_t>& data) {
         auto it = player_conns_.find(player_id);
         if (it != player_conns_.end() && it->second) {
@@ -23,17 +31,22 @@ GameService::GameService() {
         [this](const std::string& player_id, const std::string& method,
                const std::vector<uint8_t>& body) { SendToPlayer(player_id, method, body); });
 
-    // 注册全部 RoomService RPC（8 个方法）
-    // 注意：RoomServiceImpl 必须是成员变量，不能是局部变量，
-    // 否则构造结束后 Dispatch 中注册的 lambda 持有悬空指针 → segfault
     room_svc_ = std::make_unique<RoomServiceImpl>(&room_mgr_, broadcast_.get());
     RegisterRoomService(&dispatch_, room_svc_.get());
 
-    // 匹配成功回调：创建房间 + 通知双方 + 超时
     match_queue_.SetMatchCallback([this](const std::string& p1, double s1, const std::string& p2,
                                          double s2) { OnMatchFound(p1, s1, p2, s2); });
 
-    // 注册 GetMetrics RPC — 暴露服务端运行指标
+    accounts_ = std::make_unique<AccountStore>(EnvOr("TINRPC_MONGO_URI", "mongodb://127.0.0.1:27017"),
+                                               EnvOr("TINRPC_MONGO_DB", "tinrpc"));
+    std::string mongo_err;
+    if (!accounts_->Init(&mongo_err)) {
+        printf("[GameService] WARN: Mongo init failed: %s (Register/Login will return db unavailable)\n",
+               mongo_err.c_str());
+    }
+    db_worker_ = std::make_unique<DbWorker>(&loop_);
+    db_worker_->Start();
+
     dispatch_.RegisterMethod(
         "GetMetrics",
         [this](const std::vector<uint8_t>& /*body*/) -> std::optional<std::vector<uint8_t>> {
@@ -56,7 +69,6 @@ GameService::GameService() {
             return std::vector<uint8_t>(buf.begin(), buf.end());
         });
 
-    // 注册 EnterMatch RPC — 客户端进入匹配队列
     dispatch_.RegisterMethod(
         "EnterMatch", [this](const std::vector<uint8_t>& body) -> std::optional<std::vector<uint8_t>> {
             MatchPlayerReq req;
@@ -65,7 +77,6 @@ GameService::GameService() {
             }
             MatchPlayerRes res;
             match_queue_.EnterQueue(req.player_id(), req.elo_score());
-            // 入队后立即尝试一轮批量匹配
             match_queue_.TryMatch();
             res.set_success(true);
             std::string buf;
@@ -73,7 +84,6 @@ GameService::GameService() {
             return std::vector<uint8_t>(buf.begin(), buf.end());
         });
 
-    // 注册 CancelMatch RPC — 客户端取消匹配
     dispatch_.RegisterMethod(
         "CancelMatch",
         [this](const std::vector<uint8_t>& body) -> std::optional<std::vector<uint8_t>> {
@@ -89,8 +99,12 @@ GameService::GameService() {
             return std::vector<uint8_t>(buf.begin(), buf.end());
         });
 
-    printf("[GameService] 初始化完成: RoomService 8方法 + GetMetrics + EnterMatch/CancelMatch + "
-           "MatchQueue + Broadcast\n");
+    printf("[GameService] 初始化完成: RoomService + World + AccountStore/DbWorker + Match\n");
+}
+
+GameService::~GameService() {
+    if (db_worker_)
+        db_worker_->Stop();
 }
 
 // ---- 玩家连接管理 ----
@@ -167,46 +181,189 @@ void GameService::HandleMove(const rpc::Frame& frame, rpc::Connection* conn) {
     conn->Send(rsp);
 }
 
+void GameService::HandleGather(const rpc::Frame& frame, rpc::Connection* conn) {
+    auto player_it = fd_to_player_.find(conn->GetFd());
+    GatherReq req;
+    if (player_it == fd_to_player_.end() ||
+        !req.ParseFromArray(frame.body.data(), static_cast<int>(frame.body.size()))) {
+        auto err = rpc::ProtocolFrame::Encode(frame.request_id, rpc::MessageType::Error,
+                                              "Gather", {});
+        conn->Send(err);
+        return;
+    }
+    const auto result = world_->TryGather(player_it->second, req.resource_id());
+    GatherRes res;
+    res.set_success(result.success);
+    res.set_error_msg(result.error_msg);
+    auto* resource = res.mutable_resource();
+    resource->set_resource_id(result.resource_id);
+    resource->set_resource_type(static_cast<ResourceType>(result.resource_type));
+    resource->mutable_position()->set_x(result.x);
+    resource->mutable_position()->set_y(result.y);
+    resource->mutable_position()->set_z(result.z);
+    resource->set_remaining(result.remaining);
+    res.mutable_inventory()->set_wood(result.wood);
+    res.mutable_inventory()->set_stone(result.stone);
+    std::string buf;
+    res.SerializeToString(&buf);
+    conn->Send(rpc::ProtocolFrame::Encode(frame.request_id, rpc::MessageType::Response, "Gather",
+                                          {buf.begin(), buf.end()}));
+}
+
+void GameService::HandlePlaceBuilding(const rpc::Frame& frame, rpc::Connection* conn) {
+    auto player_it = fd_to_player_.find(conn->GetFd());
+    PlaceBuildingReq req;
+    if (player_it == fd_to_player_.end() ||
+        !req.ParseFromArray(frame.body.data(), static_cast<int>(frame.body.size()))) {
+        auto err = rpc::ProtocolFrame::Encode(frame.request_id, rpc::MessageType::Error,
+                                              "PlaceBuilding", {});
+        conn->Send(err);
+        return;
+    }
+    const auto result = world_->TryPlaceBuilding(
+        player_it->second, static_cast<int>(req.building_type()), req.position().x(),
+        req.position().y(), req.position().z(), req.yaw());
+    PlaceBuildingRes res;
+    res.set_success(result.success);
+    res.set_error_msg(result.error_msg);
+    auto* building = res.mutable_building();
+    building->set_building_id(result.building_id);
+    building->set_owner_id(result.owner_id);
+    building->set_building_type(static_cast<BuildingType>(result.building_type));
+    building->mutable_position()->set_x(result.x);
+    building->mutable_position()->set_y(result.y);
+    building->mutable_position()->set_z(result.z);
+    building->set_yaw(result.yaw);
+    res.mutable_inventory()->set_wood(result.wood);
+    res.mutable_inventory()->set_stone(result.stone);
+    std::string buf;
+    res.SerializeToString(&buf);
+    conn->Send(rpc::ProtocolFrame::Encode(frame.request_id, rpc::MessageType::Response,
+                                          "PlaceBuilding", {buf.begin(), buf.end()}));
+}
+
 // ---- 服务端帧回调 ----
+
+void GameService::HandleRegister(const rpc::Frame& frame, rpc::Connection* conn) {
+    RegisterReq req;
+    if (!req.ParseFromArray(frame.body.data(), static_cast<int>(frame.body.size()))) {
+        metrics_.OnError();
+        conn->Send(rpc::ProtocolFrame::Encode(frame.request_id, rpc::MessageType::Error, "Register",
+                                              {}));
+        return;
+    }
+
+    const uint32_t rid = frame.request_id;
+    const int fd = conn->GetFd();
+    active_conns_[fd] = conn;
+    const std::string username = req.username();
+    const std::string password = req.password();
+
+    db_worker_->Post([this, rid, fd, username, password]() {
+        AccountStore::Result result = accounts_->CreateAccount(username, password);
+        db_worker_->PostToLoop([this, rid, fd, result]() {
+            auto it = active_conns_.find(fd);
+            if (it == active_conns_.end() || !it->second)
+                return;
+            rpc::Connection* c = it->second;
+            RegisterRes res;
+            res.set_success(result.ok);
+            res.set_error_msg(result.error_msg);
+            if (result.ok)
+                res.set_player_id(result.player_id);
+            std::string buf;
+            res.SerializeToString(&buf);
+            c->Send(rpc::ProtocolFrame::Encode(rid, rpc::MessageType::Response, "Register",
+                                               {buf.begin(), buf.end()}));
+        });
+    });
+}
+
+void GameService::HandleLogin(const rpc::Frame& frame, rpc::Connection* conn) {
+    LoginReq req;
+    if (!req.ParseFromArray(frame.body.data(), static_cast<int>(frame.body.size()))) {
+        metrics_.OnError();
+        conn->Send(
+            rpc::ProtocolFrame::Encode(frame.request_id, rpc::MessageType::Error, "Login", {}));
+        return;
+    }
+
+    const uint32_t rid = frame.request_id;
+    const int fd = conn->GetFd();
+    active_conns_[fd] = conn;
+    const std::string username = req.username();
+    const std::string password = req.password();
+
+    db_worker_->Post([this, rid, fd, username, password]() {
+        AccountStore::Result result = accounts_->VerifyCredentials(username, password);
+        db_worker_->PostToLoop([this, rid, fd, result]() {
+            auto it = active_conns_.find(fd);
+            if (it == active_conns_.end() || !it->second)
+                return;
+            rpc::Connection* c = it->second;
+
+            LoginRes res;
+            if (!result.ok) {
+                res.set_success(false);
+                res.set_error_msg(result.error_msg.empty() ? "invalid credentials" : result.error_msg);
+                std::string buf;
+                res.SerializeToString(&buf);
+                c->Send(rpc::ProtocolFrame::Encode(rid, rpc::MessageType::Response, "Login",
+                                                   {buf.begin(), buf.end()}));
+                metrics_.OnError();
+                return;
+            }
+
+            // 同连接重复登录：先离开旧身份
+            auto old = fd_to_player_.find(fd);
+            if (old != fd_to_player_.end() && old->second != result.player_id) {
+                world_->Leave(old->second);
+                UnregisterPlayerConn(old->second);
+            }
+
+            RegisterPlayerConn(result.player_id, c);
+            metrics_.OnConnect();
+            world_->Enter(result.player_id, result.player_id, NowMs());
+
+            res.set_success(true);
+            res.mutable_player_info()->set_player_id(result.player_id);
+            res.mutable_player_info()->set_player_name(result.player_id);
+            std::string buf;
+            res.SerializeToString(&buf);
+            c->Send(rpc::ProtocolFrame::Encode(rid, rpc::MessageType::Response, "Login",
+                                               {buf.begin(), buf.end()}));
+            printf("[GameService] 玩家登录: %s\n", result.player_id.c_str());
+        });
+    });
+}
 
 void GameService::OnServerFrame(const rpc::Frame& frame, rpc::Connection* conn) {
     auto t0 = std::chrono::steady_clock::now();
     metrics_.Tick();
+    active_conns_[conn->GetFd()] = conn;
 
-    // Login: 建立 player → conn 映射
+    if (frame.method_name == "Register") {
+        HandleRegister(frame, conn);
+        return;
+    }
+
     if (frame.method_name == "Login") {
-        LoginReq req;
-        if (!req.ParseFromArray(frame.body.data(), static_cast<int>(frame.body.size()))) {
-            metrics_.OnError();
-            auto err = rpc::ProtocolFrame::Encode(frame.request_id, rpc::MessageType::Error,
-                                                  "Login", {});
-            conn->Send(err);
-            return;
-        }
-        RegisterPlayerConn(req.token(), conn);
-        metrics_.OnConnect();
-        world_->Enter(req.token(), req.token(), NowMs());
-
-        LoginRes res;
-        res.set_success(true);
-        res.mutable_player_info()->set_player_id(req.token());
-        std::string buf;
-        res.SerializeToString(&buf);
-        auto rsp = rpc::ProtocolFrame::Encode(frame.request_id, rpc::MessageType::Response, "Login",
-                                              std::vector<uint8_t>(buf.begin(), buf.end()));
-        conn->Send(rsp);
-
-        auto t1 = std::chrono::steady_clock::now();
-        double latency_us = static_cast<double>(
-            std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count());
-        metrics_.OnRequest(latency_us);
-
-        printf("[GameService] 玩家登录: %s\n", req.token().c_str());
+        HandleLogin(frame, conn);
         return;
     }
 
     if (frame.method_name == "Move") {
         HandleMove(frame, conn);
+        return;
+    }
+
+    if (frame.method_name == "Gather") {
+        HandleGather(frame, conn);
+        return;
+    }
+
+    if (frame.method_name == "PlaceBuilding") {
+        HandlePlaceBuilding(frame, conn);
         return;
     }
 
@@ -232,6 +389,8 @@ void GameService::OnServerFrame(const rpc::Frame& frame, rpc::Connection* conn) 
 // ---- 断连回调 ----
 
 void GameService::OnPlayerDisconnected(int fd) {
+    active_conns_.erase(fd);
+
     auto it = fd_to_player_.find(fd);
     if (it == fd_to_player_.end())
         return;
@@ -320,6 +479,8 @@ void GameService::Run(uint16_t port) {
 }
 
 void GameService::Stop() {
+    if (db_worker_)
+        db_worker_->Stop();
     loop_.Stop();
 }
 

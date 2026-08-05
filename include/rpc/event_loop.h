@@ -4,6 +4,8 @@
 #include <memory>
 #include <vector>
 #include <cstdint>
+#include <functional>
+#include <mutex>
 
 namespace rpc {
 
@@ -34,6 +36,9 @@ public:
     // 停止事件循环（可在其他线程调用）
     void Stop();
 
+    // 将回调投递到事件循环线程执行（可在其他线程调用）
+    void RunInLoop(std::function<void()> fn);
+
     // 注册一个 handler 及其管理的 fd 到 epoll
     // events: epoll 事件掩码（EPOLLIN | EPOLLET 等）
     void Register(std::unique_ptr<EventHandler> handler, uint32_t events);
@@ -50,6 +55,8 @@ private:
     int wakeup_fd_ = -1; // eventfd，用于 Stop() 唤醒 epoll_wait
     bool running_ = false; // 事件循环状态
     std::unordered_map<int, std::unique_ptr<EventHandler>> handlers_;
+    std::mutex pending_callbacks_mutex_;
+    std::vector<std::function<void()>> pending_callbacks_;
 };
 
 } // namespace rpc

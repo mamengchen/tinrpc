@@ -264,7 +264,8 @@ public:
 
     bool Login() {
         LoginReq req;
-        req.set_token(player_id_);
+        req.set_username(player_id_);
+        req.set_password("testpass123");
 
         int64_t t0 = NowUs();
         LoginRes res;

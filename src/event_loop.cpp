@@ -56,7 +56,16 @@ void EventLoop::Run() {
             // wakeup_fd_ 事件：仅消费数据，不触发 handler
             if (fd == wakeup_fd_) {
                 uint64_t dummy;
-                read(wakeup_fd_, &dummy, sizeof(dummy));
+                eventfd_read(wakeup_fd_, &dummy);
+
+                std::vector<std::function<void()>> callbacks;
+                {
+                    std::lock_guard<std::mutex> lock(pending_callbacks_mutex_);
+                    callbacks.swap(pending_callbacks_);
+                }
+                for (auto& callback : callbacks) {
+                    callback();
+                }
                 continue;
             }
 
@@ -81,9 +90,16 @@ void EventLoop::Run() {
 
 void EventLoop::Stop() {
     running_ = false;
-    // 向 wakeup_fd_ 写入 1 字节，唤醒正在阻塞的 epoll_wait
-    uint64_t one = 1;
-    write(wakeup_fd_, &one, sizeof(one));
+    // 唤醒正在阻塞的 epoll_wait
+    eventfd_write(wakeup_fd_, 1);
+}
+
+void EventLoop::RunInLoop(std::function<void()> fn) {
+    {
+        std::lock_guard<std::mutex> lock(pending_callbacks_mutex_);
+        pending_callbacks_.push_back(std::move(fn));
+    }
+    eventfd_write(wakeup_fd_, 1);
 }
 
 void EventLoop::Register(std::unique_ptr<EventHandler> handler, uint32_t events) {

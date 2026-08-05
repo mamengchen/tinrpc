@@ -139,20 +139,44 @@ bool StateContains(const game::WorldStateNtf& state, const std::string& player_i
 
 void LoginAndExpectSelfState(SimpleClient& client, uint32_t request_id, const std::string& token,
                              int expected_players) {
+    // Phase 1: username/password — register then login (password fixed for tests)
+    const std::string password = "testpass123";
+    {
+        game::RegisterReq reg;
+        reg.set_username(token);
+        reg.set_password(password);
+        client.SendRequest(request_id, "Register", Serialize(reg));
+        const auto deadline = Clock::now() + std::chrono::seconds(2);
+        bool got = false;
+        while (!got) {
+            const auto remaining =
+                std::chrono::duration_cast<std::chrono::milliseconds>(deadline - Clock::now());
+            CHECK(remaining.count() > 0);
+            const rpc::Frame frame = client.ReceiveFrame(remaining);
+            if (frame.request_id == request_id && frame.method_name == "Register") {
+                game::RegisterRes response;
+                CHECK(response.ParseFromArray(frame.body.data(), static_cast<int>(frame.body.size())));
+                // ok if success or username taken (re-run tests)
+                got = true;
+            }
+        }
+    }
+
     game::LoginReq request;
-    request.set_token(token);
-    client.SendRequest(request_id, "Login", Serialize(request));
+    request.set_username(token);
+    request.set_password(password);
+    client.SendRequest(request_id + 1000, "Login", Serialize(request));
 
     bool received_login = false;
     bool received_state = false;
-    const auto deadline = Clock::now() + std::chrono::seconds(2);
+    const auto deadline = Clock::now() + std::chrono::seconds(3);
     while (!received_login || !received_state) {
         const auto remaining =
             std::chrono::duration_cast<std::chrono::milliseconds>(deadline - Clock::now());
         CHECK(remaining.count() > 0);
         const rpc::Frame frame = client.ReceiveFrame(remaining);
 
-        if (frame.request_id == request_id && frame.method_name == "Login") {
+        if (frame.request_id == request_id + 1000 && frame.method_name == "Login") {
             CHECK(frame.msg_type == rpc::MessageType::Response);
             game::LoginRes response;
             CHECK(response.ParseFromArray(frame.body.data(), static_cast<int>(frame.body.size())));

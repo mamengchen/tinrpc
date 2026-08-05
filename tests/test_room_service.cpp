@@ -267,7 +267,8 @@ struct SimpleStub {
 
 void ClientLogin(SimpleClient& client, const std::string& player_id) {
     game::LoginReq req;
-    req.set_token(player_id);
+    req.set_username(player_id);
+        req.set_password("testpass123");
     std::string buf;
     req.SerializeToString(&buf);
     auto rsp_body = client.Call("Login", std::vector<uint8_t>(buf.begin(), buf.end()));
@@ -303,11 +304,11 @@ void TestStubCreateRoom() {
         if (frame.method_name == "Login") {
             game::LoginReq req;
             req.ParseFromArray(frame.body.data(), static_cast<int>(frame.body.size()));
-            player_conns[req.token()] = conn;
+            player_conns[req.username()] = conn;
 
             game::LoginRes res;
             res.set_success(true);
-            res.mutable_player_info()->set_player_id(req.token());
+            res.mutable_player_info()->set_player_id(req.username());
             std::string buf;
             res.SerializeToString(&buf);
             auto rsp = rpc::ProtocolFrame::Encode(frame.request_id, rpc::MessageType::Response,
@@ -401,10 +402,10 @@ void TestStubCreateAndJoin() {
         if (frame.method_name == "Login") {
             game::LoginReq req;
             req.ParseFromArray(frame.body.data(), static_cast<int>(frame.body.size()));
-            player_conns[req.token()] = conn;
+            player_conns[req.username()] = conn;
             game::LoginRes res;
             res.set_success(true);
-            res.mutable_player_info()->set_player_id(req.token());
+            res.mutable_player_info()->set_player_id(req.username());
             std::string buf;
             res.SerializeToString(&buf);
             auto rsp = rpc::ProtocolFrame::Encode(frame.request_id, rpc::MessageType::Response,
@@ -517,10 +518,10 @@ void TestStubSendMessage() {
         if (frame.method_name == "Login") {
             game::LoginReq req;
             req.ParseFromArray(frame.body.data(), static_cast<int>(frame.body.size()));
-            player_conns[req.token()] = conn;
+            player_conns[req.username()] = conn;
             game::LoginRes res;
             res.set_success(true);
-            res.mutable_player_info()->set_player_id(req.token());
+            res.mutable_player_info()->set_player_id(req.username());
             std::string buf;
             res.SerializeToString(&buf);
             auto rsp = rpc::ProtocolFrame::Encode(frame.request_id, rpc::MessageType::Response,
@@ -613,10 +614,10 @@ void TestStubGetRoomList() {
         if (frame.method_name == "Login") {
             game::LoginReq req;
             req.ParseFromArray(frame.body.data(), static_cast<int>(frame.body.size()));
-            player_conns[req.token()] = conn;
+            player_conns[req.username()] = conn;
             game::LoginRes res;
             res.set_success(true);
-            res.mutable_player_info()->set_player_id(req.token());
+            res.mutable_player_info()->set_player_id(req.username());
             std::string buf;
             res.SerializeToString(&buf);
             auto rsp = rpc::ProtocolFrame::Encode(frame.request_id, rpc::MessageType::Response,
@@ -741,10 +742,10 @@ void TestStubLeaveRoom() {
         if (frame.method_name == "Login") {
             game::LoginReq req;
             req.ParseFromArray(frame.body.data(), static_cast<int>(frame.body.size()));
-            player_conns[req.token()] = conn;
+            player_conns[req.username()] = conn;
             game::LoginRes res;
             res.set_success(true);
-            res.mutable_player_info()->set_player_id(req.token());
+            res.mutable_player_info()->set_player_id(req.username());
             std::string buf;
             res.SerializeToString(&buf);
             auto rsp = rpc::ProtocolFrame::Encode(frame.request_id, rpc::MessageType::Response,
@@ -859,10 +860,10 @@ void TestStubCreateRoomFailDuplicate() {
         if (frame.method_name == "Login") {
             game::LoginReq req;
             req.ParseFromArray(frame.body.data(), static_cast<int>(frame.body.size()));
-            player_conns[req.token()] = conn;
+            player_conns[req.username()] = conn;
             game::LoginRes res;
             res.set_success(true);
-            res.mutable_player_info()->set_player_id(req.token());
+            res.mutable_player_info()->set_player_id(req.username());
             std::string buf;
             res.SerializeToString(&buf);
             auto rsp = rpc::ProtocolFrame::Encode(frame.request_id, rpc::MessageType::Response,
@@ -963,10 +964,10 @@ struct QuickServer {
             if (frame.method_name == "Login") {
                 game::LoginReq req;
                 req.ParseFromArray(frame.body.data(), static_cast<int>(frame.body.size()));
-                player_conns[req.token()] = conn;
+                player_conns[req.username()] = conn;
                 game::LoginRes res;
                 res.set_success(true);
-                res.mutable_player_info()->set_player_id(req.token());
+                res.mutable_player_info()->set_player_id(req.username());
                 std::string buf;
                 res.SerializeToString(&buf);
                 auto rsp = rpc::ProtocolFrame::Encode(frame.request_id, rpc::MessageType::Response,
@@ -1231,12 +1232,12 @@ void TestDisconnectAutoCleanup() {
         if (frame.method_name == "Login") {
             game::LoginReq req;
             req.ParseFromArray(frame.body.data(), static_cast<int>(frame.body.size()));
-            player_conns[req.token()] = conn;
-            fd_to_player[conn->GetFd()] = req.token(); // 建立 fd→player 映射
+            player_conns[req.username()] = conn;
+            fd_to_player[conn->GetFd()] = req.username(); // 建立 fd→player 映射
 
             game::LoginRes res;
             res.set_success(true);
-            res.mutable_player_info()->set_player_id(req.token());
+            res.mutable_player_info()->set_player_id(req.username());
             std::string buf;
             res.SerializeToString(&buf);
             auto rsp = rpc::ProtocolFrame::Encode(frame.request_id, rpc::MessageType::Response,
@@ -1364,10 +1365,10 @@ void TestStubRoomCleanupAfterEmpty() {
         if (frame.method_name == "Login") {
             game::LoginReq req;
             req.ParseFromArray(frame.body.data(), static_cast<int>(frame.body.size()));
-            player_conns[req.token()] = conn;
+            player_conns[req.username()] = conn;
             game::LoginRes res;
             res.set_success(true);
-            res.mutable_player_info()->set_player_id(req.token());
+            res.mutable_player_info()->set_player_id(req.username());
             std::string buf;
             res.SerializeToString(&buf);
             auto rsp = rpc::ProtocolFrame::Encode(frame.request_id, rpc::MessageType::Response,
