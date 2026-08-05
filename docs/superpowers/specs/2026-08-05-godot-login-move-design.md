@@ -84,11 +84,12 @@ message MoveRes {
 | 方法名 | 消息体 | 何时 |
 |--------|--------|------|
 | `PlayerEnterNtf` | `PlayerTransform` | 其他玩家进入默认世界时推送给已在线者 |
-| `PlayerLeaveNtf` | 含 `player_id` 的消息 | 断线或离开默认世界 |
+| `PlayerLeaveNtf` | body 用 `WorldPlayerLeaveNtf`（`player_id`） | 断线或离开默认世界；与房间版 `PlayerLeaveNtf` 消息类型区分 |
 | `WorldStateNtf` | `repeated PlayerTransform` | Login 成功后发给自己（全量快照）；Move 后可广播变更（可只含变化的玩家） |
 
 ```protobuf
-message PlayerLeaveNtf {
+// 与房间 PlayerLeaveNtf 重名冲突，默认世界使用：
+message WorldPlayerLeaveNtf {
   string player_id = 1;
 }
 

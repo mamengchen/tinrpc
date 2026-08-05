@@ -202,6 +202,7 @@ cmake .. && make -j$(nproc)
 
 | 文档 | 内容 |
 |------|------|
+| [Godot 4 ↔ WSL 客户端接入](docs/godot-wsl-client-guide.md) | Windows Godot 连 WSL tinrpc：地址、帧协议、Login/Move、排错 |
 | [综合压测报告](docs/bench/00-comprehensive-report.md) | v0.11 全场景压测数据 + CPU 热点分析 + 优化建议 |
 | [工程日志](docs/devlog.md) | 每层开发中的设计决策与问题解决记录 |
 | [设计文档](docs/) | 各层理论文档（01~06）+ [踩坑记录](docs/pitfalls/)（8 篇） |
