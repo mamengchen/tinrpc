@@ -1,0 +1,12 @@
+; Engine configuration file.
+; Edit this file with an editor or Godot, not by hand when possible.
+config_version=5
+
+[application]
+
+config/name="TinRpcClient"
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
