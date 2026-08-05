@@ -1,5 +1,7 @@
 #pragma once
 
+#include "game/scene_store.h"
+
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -43,6 +45,10 @@ public:
                                       const std::vector<uint8_t>& body)>;
 
     explicit WorldService(SendFn send);
+
+    void SeedDefaultScene();
+    void LoadScene(const SceneSnapshot& snap);
+    SceneSnapshot ExportScene(const std::string& scene_id = "default") const;
 
     void Enter(const std::string& player_id, const std::string& name, int64_t now_ms);
     /// 使用存档状态进入世界（found 档或默认值由调用方填好）
@@ -97,7 +103,6 @@ private:
     std::vector<BuildingState> buildings_;
     uint64_t next_building_id_ = 1;
 
-    void SeedResources();
     void SendWorldStateTo(const std::string& to);
     void BroadcastEnter(const Player& p);
     void BroadcastLeave(const std::string& player_id);

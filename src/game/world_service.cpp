@@ -24,17 +24,76 @@ void FillVec3(Vec3* out, float x, float y, float z) {
 } // namespace
 
 WorldService::WorldService(SendFn send) : send_(std::move(send)) {
-    SeedResources();
 }
 
-void WorldService::SeedResources() {
+void WorldService::SeedDefaultScene() {
+    resources_.clear();
+    buildings_.clear();
+    next_building_id_ = 1;
     const Resource seeded[] = {
         {"tree_1", RESOURCE_WOOD, -6, 0, -5, 6}, {"tree_2", RESOURCE_WOOD, 7, 0, -4, 6},
         {"tree_3", RESOURCE_WOOD, -9, 0, 7, 6},  {"tree_4", RESOURCE_WOOD, 10, 0, 8, 6},
         {"rock_1", RESOURCE_STONE, -4, 0, 8, 5}, {"rock_2", RESOURCE_STONE, 5, 0, 6, 5},
         {"rock_3", RESOURCE_STONE, 9, 0, -9, 5},
     };
-    for (const auto& resource : seeded) resources_.emplace(resource.id, resource);
+    for (const auto& resource : seeded)
+        resources_.emplace(resource.id, resource);
+}
+
+void WorldService::LoadScene(const SceneSnapshot& snap) {
+    resources_.clear();
+    buildings_.clear();
+    for (const auto& r : snap.resources) {
+        Resource resource;
+        resource.id = r.id;
+        resource.type = r.type;
+        resource.x = r.x;
+        resource.y = r.y;
+        resource.z = r.z;
+        resource.remaining = r.remaining;
+        resources_.emplace(resource.id, resource);
+    }
+    for (const auto& b : snap.buildings) {
+        BuildingState building;
+        building.id = b.id;
+        building.owner_id = b.owner_id;
+        building.type = b.type;
+        building.x = b.x;
+        building.y = b.y;
+        building.z = b.z;
+        building.yaw = b.yaw;
+        buildings_.push_back(building);
+    }
+    next_building_id_ = snap.next_building_id > 0 ? snap.next_building_id : 1;
+}
+
+SceneSnapshot WorldService::ExportScene(const std::string& scene_id) const {
+    SceneSnapshot snap;
+    snap.scene_id = scene_id;
+    snap.next_building_id = next_building_id_;
+    snap.found = true;
+    for (const auto& [_, r] : resources_) {
+        SceneResource out;
+        out.id = r.id;
+        out.type = r.type;
+        out.x = r.x;
+        out.y = r.y;
+        out.z = r.z;
+        out.remaining = r.remaining;
+        snap.resources.push_back(out);
+    }
+    for (const auto& b : buildings_) {
+        SceneBuilding out;
+        out.id = b.id;
+        out.owner_id = b.owner_id;
+        out.type = b.type;
+        out.x = b.x;
+        out.y = b.y;
+        out.z = b.z;
+        out.yaw = b.yaw;
+        snap.buildings.push_back(out);
+    }
+    return snap;
 }
 
 void WorldService::Enter(const std::string& player_id, const std::string& name, int64_t now_ms) {
