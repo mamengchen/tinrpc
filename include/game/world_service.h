@@ -45,7 +45,13 @@ public:
     explicit WorldService(SendFn send);
 
     void Enter(const std::string& player_id, const std::string& name, int64_t now_ms);
+    /// 使用存档状态进入世界（found 档或默认值由调用方填好）
+    void EnterWithState(const std::string& player_id, const std::string& name, int64_t now_ms,
+                        float x, float y, float z, float yaw, int wood, int stone);
     void Leave(const std::string& player_id);
+    /// 取当前内存快照；玩家不在世界返回 false
+    bool GetSnapshot(const std::string& player_id, float* x, float* y, float* z, float* yaw,
+                     int* wood, int* stone) const;
     MoveApplyResult TryMove(const std::string& player_id, float x, float y, float z, float yaw,
                             int64_t now_ms);
     GatherApplyResult TryGather(const std::string& player_id, const std::string& resource_id);
