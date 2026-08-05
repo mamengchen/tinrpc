@@ -302,6 +302,41 @@ message GetMetricsRes {
     int64  error_count        = 11; // 历史错误总数
 }
 
+// ---- 默认世界 / 状态同步（Godot） ----
+
+message Vec3 {
+    float x = 1;
+    float y = 2;
+    float z = 3;
+}
+
+message PlayerTransform {
+    string player_id   = 1;
+    string player_name = 2;
+    Vec3   position    = 3;
+    float  yaw         = 4;  // degrees
+}
+
+message MoveReq {
+    Vec3  position       = 1;
+    float yaw            = 2;
+    int64 client_time_ms = 3;
+}
+
+message MoveRes {
+    bool   success             = 1;
+    string error_msg           = 2;
+    Vec3   corrected_position  = 3;
+}
+
+// 默认世界离开推送复用上方 PlayerLeaveNtf（RPC 方法名 PlayerLeaveNtf，body 仅填 player_id）
+
+message WorldStateNtf {
+    repeated PlayerTransform players = 1;
+}
+
+// PlayerEnterNtf 直接使用 PlayerTransform 作为 body
+
 // ---- 以下为序列化对比测试保留 ----
 
 // 简单测试消息 — 字段类型与 TLV Serializer 对齐
