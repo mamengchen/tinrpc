@@ -86,7 +86,9 @@ func _dispatch_frame(frame: Dictionary) -> void:
 	var method: String = frame["method"]
 	var body: PackedByteArray = frame["body"]
 
-	if msg_type == FrameCodec.TYPE_REQUEST:
+	# TinRpc server pushes use Response frames with request_id 0, while peers may
+	# also send request-shaped notifications. Neither is an RPC response.
+	if msg_type == FrameCodec.TYPE_REQUEST or request_id == 0:
 		notify.emit(method, body)
 		return
 
