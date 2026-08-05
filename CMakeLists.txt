@@ -246,3 +246,8 @@ add_executable(test_world_service
     tests/test_world_service.cpp
 )
 target_link_libraries(test_world_service rpc_lib pthread)
+
+add_executable(test_world_e2e
+    tests/test_world_e2e.cpp
+)
+target_link_libraries(test_world_e2e rpc_lib pthread)
