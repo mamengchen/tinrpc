@@ -1,5 +1,6 @@
 #include "game/game_service.h"
 #include "game/room_service.h"
+#include "game/player_store.h"
 #include "rpc/acceptor.h"
 #include "game.pb.h"
 
@@ -39,10 +40,15 @@ GameService::GameService() {
 
     accounts_ = std::make_unique<AccountStore>(EnvOr("TINRPC_MONGO_URI", "mongodb://127.0.0.1:27017"),
                                                EnvOr("TINRPC_MONGO_DB", "tinrpc"));
+    players_ = std::make_unique<PlayerStore>(EnvOr("TINRPC_MONGO_URI", "mongodb://127.0.0.1:27017"),
+                                             EnvOr("TINRPC_MONGO_DB", "tinrpc"));
     std::string mongo_err;
     if (!accounts_->Init(&mongo_err)) {
-        printf("[GameService] WARN: Mongo init failed: %s (Register/Login will return db unavailable)\n",
-               mongo_err.c_str());
+        printf("[GameService] WARN: Mongo accounts init failed: %s\n", mongo_err.c_str());
+    }
+    mongo_err.clear();
+    if (!players_->Init(&mongo_err)) {
+        printf("[GameService] WARN: Mongo players init failed: %s\n", mongo_err.c_str());
     }
     db_worker_ = std::make_unique<DbWorker>(&loop_);
     db_worker_->Start();
@@ -296,7 +302,20 @@ void GameService::HandleLogin(const rpc::Frame& frame, rpc::Connection* conn) {
 
     db_worker_->Post([this, rid, fd, username, password]() {
         AccountStore::Result result = accounts_->VerifyCredentials(username, password);
-        db_worker_->PostToLoop([this, rid, fd, result]() {
+        PlayerState saved;
+        if (result.ok) {
+            saved = players_->Load(result.player_id);
+            if (!saved.found) {
+                saved.player_id = result.player_id;
+                saved.x = 0;
+                saved.y = 0;
+                saved.z = 0;
+                saved.yaw = 0;
+                saved.wood = 6;
+                saved.stone = 3;
+            }
+        }
+        db_worker_->PostToLoop([this, rid, fd, result, saved]() {
             auto it = active_conns_.find(fd);
             if (it == active_conns_.end() || !it->second)
                 return;
@@ -314,16 +333,17 @@ void GameService::HandleLogin(const rpc::Frame& frame, rpc::Connection* conn) {
                 return;
             }
 
-            // 同连接重复登录：先离开旧身份
             auto old = fd_to_player_.find(fd);
             if (old != fd_to_player_.end() && old->second != result.player_id) {
+                SavePlayerAsync(old->second);
                 world_->Leave(old->second);
                 UnregisterPlayerConn(old->second);
             }
 
             RegisterPlayerConn(result.player_id, c);
             metrics_.OnConnect();
-            world_->Enter(result.player_id, result.player_id, NowMs());
+            world_->EnterWithState(result.player_id, result.player_id, NowMs(), saved.x, saved.y,
+                                   saved.z, saved.yaw, saved.wood, saved.stone);
 
             res.set_success(true);
             res.mutable_player_info()->set_player_id(result.player_id);
@@ -332,7 +352,8 @@ void GameService::HandleLogin(const rpc::Frame& frame, rpc::Connection* conn) {
             res.SerializeToString(&buf);
             c->Send(rpc::ProtocolFrame::Encode(rid, rpc::MessageType::Response, "Login",
                                                {buf.begin(), buf.end()}));
-            printf("[GameService] 玩家登录: %s\n", result.player_id.c_str());
+            printf("[GameService] 玩家登录: %s (pos=%.1f,%.1f,%.1f wood=%d stone=%d)\n",
+                   result.player_id.c_str(), saved.x, saved.y, saved.z, saved.wood, saved.stone);
         });
     });
 }
@@ -388,6 +409,20 @@ void GameService::OnServerFrame(const rpc::Frame& frame, rpc::Connection* conn) 
 
 // ---- 断连回调 ----
 
+void GameService::SavePlayerAsync(const std::string& player_id) {
+    PlayerState st;
+    st.player_id = player_id;
+    if (!world_->GetSnapshot(player_id, &st.x, &st.y, &st.z, &st.yaw, &st.wood, &st.stone))
+        return;
+    db_worker_->Post([this, st]() {
+        auto r = players_->Upsert(st);
+        if (!r.ok) {
+            printf("[GameService] WARN: save player %s failed: %s\n", st.player_id.c_str(),
+                   r.error_msg.c_str());
+        }
+    });
+}
+
 void GameService::OnPlayerDisconnected(int fd) {
     active_conns_.erase(fd);
 
@@ -398,22 +433,16 @@ void GameService::OnPlayerDisconnected(int fd) {
     std::string player_id = it->second;
     printf("[GameService] 玩家断连: %s (fd=%d)\n", player_id.c_str(), fd);
 
-    // 1. 从房间移除
+    SavePlayerAsync(player_id);
+
     std::string room_id = room_mgr_.GetPlayerRoom(player_id);
     if (!room_id.empty()) {
         room_mgr_.LeaveRoomAndNotify(room_id, player_id, broadcast_.get());
     }
 
-    // 2. 从匹配队列移除
     match_queue_.CancelMatch(player_id);
-
-    // 3. 从默认世界移除并通知其他玩家
     world_->Leave(player_id);
-
-    // 4. 清理连接映射
     UnregisterPlayerConn(player_id);
-
-    // 5. 记录断连
     metrics_.OnDisconnect();
 }
 

@@ -8,6 +8,7 @@
 #include "game/world_service.h"
 #include "game/account_store.h"
 #include "game/db_worker.h"
+#include "game/player_store.h"
 #include "game/timer_manager.h"
 #include "game/frame_sync.h"
 #include "rpc/event_loop.h"
@@ -81,8 +82,11 @@ private:
     std::unique_ptr<WorldService> world_;
     std::unique_ptr<RoomServiceImpl> room_svc_;
     std::unique_ptr<AccountStore> accounts_;
+    std::unique_ptr<PlayerStore> players_;
     std::unique_ptr<DbWorker> db_worker_;
     ServerMetrics metrics_;
+
+    void SavePlayerAsync(const std::string& player_id);
 
     rpc::EventLoop loop_;
     rpc::Dispatch dispatch_;

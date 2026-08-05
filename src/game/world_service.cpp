@@ -38,22 +38,63 @@ void WorldService::SeedResources() {
 }
 
 void WorldService::Enter(const std::string& player_id, const std::string& name, int64_t now_ms) {
+    float x = static_cast<float>(players_.size() % 4) * 2.0f;
+    float z = static_cast<float>(players_.size() / 4) * 2.0f;
+    // 若已在线则保持坐标；新进入用网格出生点
+    auto existing = players_.find(player_id);
+    if (existing != players_.end()) {
+        EnterWithState(player_id, name, now_ms, existing->second.x, existing->second.y,
+                       existing->second.z, existing->second.yaw, existing->second.wood,
+                       existing->second.stone);
+        return;
+    }
+    EnterWithState(player_id, name, now_ms, x, 0.f, z, 0.f, 6, 3);
+}
+
+void WorldService::EnterWithState(const std::string& player_id, const std::string& name,
+                                  int64_t now_ms, float x, float y, float z, float yaw, int wood,
+                                  int stone) {
     auto [it, inserted] = players_.try_emplace(player_id);
     Player& player = it->second;
     player.player_id = player_id;
     player.name = name;
+    player.x = x;
+    player.y = y;
+    player.z = z;
+    player.yaw = yaw;
+    player.wood = wood;
+    player.stone = stone;
     player.last_move_ms = now_ms;
     player.last_broadcast_ms = now_ms - kMinBroadcastIntervalMs;
-    if (inserted) {
-        player.x = static_cast<float>((players_.size() - 1) % 4) * 2.0f;
-        player.z = static_cast<float>((players_.size() - 1) / 4) * 2.0f;
-    }
+    (void)inserted;
     SendWorldStateTo(player_id);
     BroadcastEnter(player);
 }
 
 void WorldService::Leave(const std::string& player_id) {
-    if (players_.erase(player_id) != 0) BroadcastLeave(player_id);
+    if (players_.erase(player_id) != 0)
+        BroadcastLeave(player_id);
+}
+
+bool WorldService::GetSnapshot(const std::string& player_id, float* x, float* y, float* z,
+                               float* yaw, int* wood, int* stone) const {
+    auto it = players_.find(player_id);
+    if (it == players_.end())
+        return false;
+    const Player& p = it->second;
+    if (x)
+        *x = p.x;
+    if (y)
+        *y = p.y;
+    if (z)
+        *z = p.z;
+    if (yaw)
+        *yaw = p.yaw;
+    if (wood)
+        *wood = p.wood;
+    if (stone)
+        *stone = p.stone;
+    return true;
 }
 
 MoveApplyResult WorldService::TryMove(const std::string& player_id, float x, float y, float z,

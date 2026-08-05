@@ -1,4 +1,5 @@
 #include "game/account_store.h"
+#include "game/mongo_runtime.h"
 
 #include <bson/bson.h>
 #include <mongoc/mongoc.h>
@@ -7,23 +8,17 @@
 #include <crypt.h>
 #include <ctime>
 #include <cstring>
-#include <mutex>
 
 namespace game {
 namespace {
 
 constexpr const char* kColl = "accounts";
-std::once_flag g_mongoc_once;
-
-void EnsureMongoc() {
-    std::call_once(g_mongoc_once, [] { mongoc_init(); });
-}
 
 } // namespace
 
 AccountStore::AccountStore(std::string uri, std::string db_name)
     : uri_(std::move(uri)), db_name_(std::move(db_name)) {
-    EnsureMongoc();
+    EnsureMongocInit();
 }
 
 AccountStore::~AccountStore() {
