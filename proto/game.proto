@@ -329,7 +329,11 @@ message MoveRes {
     Vec3   corrected_position  = 3;
 }
 
-// 默认世界离开推送复用上方 PlayerLeaveNtf（RPC 方法名 PlayerLeaveNtf，body 仅填 player_id）
+// 与房间 PlayerLeaveNtf 区分：默认世界离开专用（player_id = 1）
+// RPC 方法名仍可用 "PlayerLeaveNtf"；body 用本消息
+message WorldPlayerLeaveNtf {
+    string player_id = 1;
+}
 
 message WorldStateNtf {
     repeated PlayerTransform players = 1;
