@@ -59,6 +59,7 @@ add_library(rpc_lib STATIC
     src/game/match_service.cpp
     src/game/game_service.cpp
     src/game/session_manager.cpp
+    src/game/world_service.cpp
     ${PROTO_SRCS}
 )
 
@@ -237,3 +238,11 @@ add_executable(test_match_queue
     tests/test_match_queue.cpp
 )
 target_link_libraries(test_match_queue rpc_lib pthread)
+
+# ============================================================
+# WorldService 默认世界状态同步测试
+# ============================================================
+add_executable(test_world_service
+    tests/test_world_service.cpp
+)
+target_link_libraries(test_world_service rpc_lib pthread)
