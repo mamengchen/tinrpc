@@ -4,6 +4,7 @@
 #include "game.pb.h"
 
 #include <sys/epoll.h>
+#include <chrono>
 #include <cstdio>
 
 namespace game {
@@ -18,6 +19,9 @@ GameService::GameService() {
         }
     };
     broadcast_ = std::make_unique<Broadcast>(&room_mgr_, send_fn);
+    world_ = std::make_unique<WorldService>(
+        [this](const std::string& player_id, const std::string& method,
+               const std::vector<uint8_t>& body) { SendToPlayer(player_id, method, body); });
 
     // 注册全部 RoomService RPC（8 个方法）
     // 注意：RoomServiceImpl 必须是成员变量，不能是局部变量，
@@ -109,6 +113,60 @@ rpc::Connection* GameService::GetPlayerConn(const std::string& player_id) const 
     return it != player_conns_.end() ? it->second : nullptr;
 }
 
+int64_t GameService::NowMs() const {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+               std::chrono::steady_clock::now().time_since_epoch())
+        .count();
+}
+
+void GameService::SendToPlayer(const std::string& player_id, const std::string& method,
+                               const std::vector<uint8_t>& body) {
+    auto it = player_conns_.find(player_id);
+    if (it == player_conns_.end() || !it->second) {
+        return;
+    }
+    auto frame = rpc::ProtocolFrame::Encode(0, rpc::MessageType::Response, method, body);
+    it->second->Send(frame);
+}
+
+void GameService::HandleMove(const rpc::Frame& frame, rpc::Connection* conn) {
+    auto player_it = fd_to_player_.find(conn->GetFd());
+    if (player_it == fd_to_player_.end()) {
+        MoveRes res;
+        res.set_success(false);
+        res.set_error_msg("玩家未登录");
+        std::string buf;
+        res.SerializeToString(&buf);
+        auto rsp = rpc::ProtocolFrame::Encode(frame.request_id, rpc::MessageType::Response, "Move",
+                                              std::vector<uint8_t>(buf.begin(), buf.end()));
+        conn->Send(rsp);
+        return;
+    }
+
+    MoveReq req;
+    if (!req.ParseFromArray(frame.body.data(), static_cast<int>(frame.body.size()))) {
+        metrics_.OnError();
+        auto err =
+            rpc::ProtocolFrame::Encode(frame.request_id, rpc::MessageType::Error, "Move", {});
+        conn->Send(err);
+        return;
+    }
+
+    const auto result = world_->TryMove(player_it->second, req.position().x(), req.position().y(),
+                                        req.position().z(), req.yaw(), NowMs());
+    MoveRes res;
+    res.set_success(result.success);
+    res.set_error_msg(result.error_msg);
+    res.mutable_corrected_position()->set_x(result.corrected_x);
+    res.mutable_corrected_position()->set_y(result.corrected_y);
+    res.mutable_corrected_position()->set_z(result.corrected_z);
+    std::string buf;
+    res.SerializeToString(&buf);
+    auto rsp = rpc::ProtocolFrame::Encode(frame.request_id, rpc::MessageType::Response, "Move",
+                                          std::vector<uint8_t>(buf.begin(), buf.end()));
+    conn->Send(rsp);
+}
+
 // ---- 服务端帧回调 ----
 
 void GameService::OnServerFrame(const rpc::Frame& frame, rpc::Connection* conn) {
@@ -127,6 +185,7 @@ void GameService::OnServerFrame(const rpc::Frame& frame, rpc::Connection* conn) 
         }
         RegisterPlayerConn(req.token(), conn);
         metrics_.OnConnect();
+        world_->Enter(req.token(), req.token(), NowMs());
 
         LoginRes res;
         res.set_success(true);
@@ -143,6 +202,11 @@ void GameService::OnServerFrame(const rpc::Frame& frame, rpc::Connection* conn) 
         metrics_.OnRequest(latency_us);
 
         printf("[GameService] 玩家登录: %s\n", req.token().c_str());
+        return;
+    }
+
+    if (frame.method_name == "Move") {
+        HandleMove(frame, conn);
         return;
     }
 
@@ -184,10 +248,13 @@ void GameService::OnPlayerDisconnected(int fd) {
     // 2. 从匹配队列移除
     match_queue_.CancelMatch(player_id);
 
-    // 3. 清理连接映射
+    // 3. 从默认世界移除并通知其他玩家
+    world_->Leave(player_id);
+
+    // 4. 清理连接映射
     UnregisterPlayerConn(player_id);
 
-    // 4. 记录断连
+    // 5. 记录断连
     metrics_.OnDisconnect();
 }
 

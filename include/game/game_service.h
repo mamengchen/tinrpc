@@ -5,6 +5,7 @@
 #include "game/server_metrics.h"
 #include "game/match_service.h"
 #include "game/broadcast.h"
+#include "game/world_service.h"
 #include "game/timer_manager.h"
 #include "game/frame_sync.h"
 #include "rpc/event_loop.h"
@@ -12,10 +13,12 @@
 #include "rpc/connection.h"
 #include "rpc/protocol.h"
 
+#include <cstdint>
 #include <unordered_map>
 #include <string>
 #include <functional>
 #include <memory>
+#include <vector>
 
 namespace game {
 
@@ -98,6 +101,16 @@ private:
     /// @brief 服务端帧回调：解析请求 → Dispatch 分发 → 发送响应
     void OnServerFrame(const rpc::Frame& frame, rpc::Connection* conn);
 
+    /// @brief 处理默认世界移动请求
+    void HandleMove(const rpc::Frame& frame, rpc::Connection* conn);
+
+    /// @brief 获取单调时钟毫秒时间戳
+    int64_t NowMs() const;
+
+    /// @brief 向指定玩家发送服务端推送
+    void SendToPlayer(const std::string& player_id, const std::string& method,
+                      const std::vector<uint8_t>& body);
+
     /// @brief 断连回调
     void OnPlayerDisconnected(int fd);
 
@@ -108,6 +121,7 @@ private:
     MatchQueue match_queue_;
     TimerManager timer_;
     std::unique_ptr<Broadcast> broadcast_;
+    std::unique_ptr<WorldService> world_;
     std::unique_ptr<RoomServiceImpl> room_svc_;
     ServerMetrics metrics_;
 
