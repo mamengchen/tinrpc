@@ -5,6 +5,7 @@ config_version=5
 [application]
 
 config/name="TinRpcClient"
+run/main_scene="res://scenes/main.tscn"
 
 [rendering]
 
