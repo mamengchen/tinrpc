@@ -21,10 +21,18 @@ struct SceneBuilding {
     float yaw = 0;
 };
 
+struct SceneVoxelEdit {
+    std::string room_id;
+    int x = 0, y = 0, z = 0;
+    int action = 0;
+    int block_type = 0;
+};
+
 struct SceneSnapshot {
     std::string scene_id = "default";
     std::vector<SceneResource> resources;
     std::vector<SceneBuilding> buildings;
+    std::vector<SceneVoxelEdit> voxel_edits;
     uint64_t next_building_id = 1;
     bool found = false;
 };

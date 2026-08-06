@@ -65,6 +65,11 @@ void WorldService::LoadScene(const SceneSnapshot& snap) {
         buildings_.push_back(building);
     }
     next_building_id_ = snap.next_building_id > 0 ? snap.next_building_id : 1;
+    voxel_edits_.clear();
+    for (const auto& v : snap.voxel_edits) {
+        const std::string key = std::to_string(v.x) + ":" + std::to_string(v.y) + ":" + std::to_string(v.z);
+        voxel_edits_[v.room_id][key] = {v.x, v.y, v.z, v.action, v.block_type};
+    }
 }
 
 SceneSnapshot WorldService::ExportScene(const std::string& scene_id) const {
@@ -92,6 +97,12 @@ SceneSnapshot WorldService::ExportScene(const std::string& scene_id) const {
         out.z = b.z;
         out.yaw = b.yaw;
         snap.buildings.push_back(out);
+    }
+    for (const auto& [room_id, edits] : voxel_edits_) {
+        for (const auto& [_, v] : edits) {
+            SceneVoxelEdit out; out.room_id = room_id; out.x = v.x; out.y = v.y; out.z = v.z;
+            out.action = v.action; out.block_type = v.block_type; snap.voxel_edits.push_back(out);
+        }
     }
     return snap;
 }

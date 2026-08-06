@@ -158,6 +158,24 @@ SceneSnapshot SceneStore::Load(const std::string& scene_id) {
         }
     }
 
+    if (bson_iter_init_find(&it, doc, "voxel_edits") && BSON_ITER_HOLDS_ARRAY(&it)) {
+        bson_iter_t arr; bson_iter_recurse(&it, &arr);
+        while (bson_iter_next(&arr)) {
+            if (!BSON_ITER_HOLDS_DOCUMENT(&arr)) continue;
+            bson_iter_t v; bson_iter_recurse(&arr, &v); SceneVoxelEdit edit;
+            while (bson_iter_next(&v)) {
+                const char* key = bson_iter_key(&v);
+                if (strcmp(key, "room_id") == 0 && BSON_ITER_HOLDS_UTF8(&v)) edit.room_id = bson_iter_utf8(&v, nullptr);
+                else if (strcmp(key, "x") == 0 && BSON_ITER_HOLDS_INT32(&v)) edit.x = bson_iter_int32(&v);
+                else if (strcmp(key, "y") == 0 && BSON_ITER_HOLDS_INT32(&v)) edit.y = bson_iter_int32(&v);
+                else if (strcmp(key, "z") == 0 && BSON_ITER_HOLDS_INT32(&v)) edit.z = bson_iter_int32(&v);
+                else if (strcmp(key, "action") == 0 && BSON_ITER_HOLDS_INT32(&v)) edit.action = bson_iter_int32(&v);
+                else if (strcmp(key, "block_type") == 0 && BSON_ITER_HOLDS_INT32(&v)) edit.block_type = bson_iter_int32(&v);
+            }
+            if (!edit.room_id.empty()) snap.voxel_edits.push_back(edit);
+        }
+    }
+
     mongoc_cursor_destroy(cursor);
     mongoc_collection_destroy(coll);
     return snap;
@@ -216,6 +234,18 @@ SceneStore::Result SceneStore::Upsert(const SceneSnapshot& snap) {
         bson_append_document_end(&buildings, &item);
     }
     bson_append_array_end(&doc, &buildings);
+
+    bson_t voxel_edits;
+    BSON_APPEND_ARRAY_BEGIN(&doc, "voxel_edits", &voxel_edits);
+    for (size_t i = 0; i < snap.voxel_edits.size(); ++i) {
+        const auto& v = snap.voxel_edits[i]; bson_t item; const std::string idx = std::to_string(i);
+        BSON_APPEND_DOCUMENT_BEGIN(&voxel_edits, idx.c_str(), &item);
+        BSON_APPEND_UTF8(&item, "room_id", v.room_id.c_str());
+        BSON_APPEND_INT32(&item, "x", v.x); BSON_APPEND_INT32(&item, "y", v.y); BSON_APPEND_INT32(&item, "z", v.z);
+        BSON_APPEND_INT32(&item, "action", v.action); BSON_APPEND_INT32(&item, "block_type", v.block_type);
+        bson_append_document_end(&voxel_edits, &item);
+    }
+    bson_append_array_end(&doc, &voxel_edits);
 
     bson_t opts = BSON_INITIALIZER;
     BSON_APPEND_BOOL(&opts, "upsert", true);
