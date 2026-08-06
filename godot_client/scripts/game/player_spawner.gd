@@ -9,17 +9,18 @@ var remote_players: Dictionary = {}
 
 
 func apply_world_state(players: Array[Dictionary]) -> void:
-	var received_ids: Dictionary = {}
 	for player in players:
 		var player_id: String = player["player_id"]
 		if player_id.is_empty() or player_id == local_player_id:
 			continue
-		received_ids[player_id] = true
 		apply_player_transform(player)
 
-	for player_id in remote_players.keys():
-		if not received_ids.has(player_id):
-			despawn_player(player_id)
+
+func _process(_delta: float) -> void:
+	var now := Time.get_ticks_msec()
+	for player_node: Node3D in remote_players.values():
+		if now - int(player_node.get_meta("last_motion_ms", 0)) > 220:
+			CharacterAppearance.set_moving(player_node, false)
 
 
 func apply_player_transform(player: Dictionary) -> void:
@@ -33,8 +34,14 @@ func apply_player_transform(player: Dictionary) -> void:
 		remote_players[player_id] = player_node
 		remote_player_spawned.emit(player_id, player_node)
 
-	player_node.global_position = player.get("position", Vector3.ZERO)
+	var next_position: Vector3 = player.get("position", Vector3.ZERO)
+	var moved := player_node.global_position.distance_squared_to(next_position) > 0.0004
+	player_node.global_position = next_position
 	player_node.rotation_degrees.y = player.get("yaw", 0.0)
+	CharacterAppearance.apply_to(player_node, player.get("appearance", 0))
+	if moved:
+		player_node.set_meta("last_motion_ms", Time.get_ticks_msec())
+	CharacterAppearance.set_moving(player_node, moved)
 
 
 func despawn_player(player_id: String) -> void:
@@ -51,7 +58,4 @@ func _spawn_placeholder(player_id: String) -> Node3D:
 	player_node.name = "Remote_%s" % player_id
 	add_child(player_node)
 
-	var mesh_instance := MeshInstance3D.new()
-	mesh_instance.mesh = BoxMesh.new()
-	player_node.add_child(mesh_instance)
 	return player_node

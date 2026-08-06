@@ -180,7 +180,7 @@ void GameService::HandleMove(const rpc::Frame& frame, rpc::Connection* conn) {
     }
 
     const auto result = world_->TryMove(player_it->second, req.position().x(), req.position().y(),
-                                        req.position().z(), req.yaw(), NowMs());
+                                        req.position().z(), req.yaw(), NowMs(), req.appearance());
     MoveRes res;
     res.set_success(result.success);
     res.set_error_msg(result.error_msg);
@@ -192,6 +192,36 @@ void GameService::HandleMove(const rpc::Frame& frame, rpc::Connection* conn) {
     auto rsp = rpc::ProtocolFrame::Encode(frame.request_id, rpc::MessageType::Response, "Move",
                                           std::vector<uint8_t>(buf.begin(), buf.end()));
     conn->Send(rsp);
+}
+
+void GameService::HandleSelectMap(const rpc::Frame& frame, rpc::Connection* conn) {
+    SelectMapRes res;
+    SelectMapReq req;
+    auto player = fd_to_player_.find(conn->GetFd());
+    if (player == fd_to_player_.end() || !req.ParseFromArray(frame.body.data(), static_cast<int>(frame.body.size()))) {
+        res.set_success(false);
+        res.set_error_msg("player is not logged in");
+    } else {
+        res.set_success(world_->SelectRoom(player->second, req.room_id(), req.map_id(), NowMs()));
+        res.set_map_id(req.map_id());
+        if (!res.success()) res.set_error_msg("invalid room or map");
+    }
+    std::string buf;
+    res.SerializeToString(&buf);
+    conn->Send(rpc::ProtocolFrame::Encode(frame.request_id, rpc::MessageType::Response,
+                                          "SelectMap", {buf.begin(), buf.end()}));
+}
+
+void GameService::HandleVoxelEdit(const rpc::Frame& frame, rpc::Connection* conn) {
+    VoxelEditReq req; VoxelEditRes res; std::string error;
+    auto player = fd_to_player_.find(conn->GetFd());
+    const bool parsed = req.ParseFromArray(frame.body.data(), static_cast<int>(frame.body.size()));
+    const bool ok = player != fd_to_player_.end() && parsed &&
+        world_->ApplyVoxelEdit(player->second, req.x(), req.y(), req.z(), req.action(), req.block_type(), &error);
+    res.set_success(ok); res.set_error_msg(error);
+    if (parsed) { auto* e=res.mutable_edit(); e->set_x(req.x()); e->set_y(req.y()); e->set_z(req.z()); e->set_action(req.action()); e->set_block_type(req.block_type()); }
+    std::string buf; res.SerializeToString(&buf);
+    conn->Send(rpc::ProtocolFrame::Encode(frame.request_id, rpc::MessageType::Response, "VoxelEdit", {buf.begin(), buf.end()}));
 }
 
 void GameService::HandleGather(const rpc::Frame& frame, rpc::Connection* conn) {
@@ -388,10 +418,16 @@ void GameService::OnServerFrame(const rpc::Frame& frame, rpc::Connection* conn) 
         return;
     }
 
+    if (frame.method_name == "SelectMap") {
+        HandleSelectMap(frame, conn);
+        return;
+    }
+
     if (frame.method_name == "Move") {
         HandleMove(frame, conn);
         return;
     }
+    if (frame.method_name == "VoxelEdit") { HandleVoxelEdit(frame, conn); return; }
 
     if (frame.method_name == "Gather") {
         HandleGather(frame, conn);

@@ -127,6 +127,20 @@ void TestGatherDistanceAndBuildCostReject() {
     CHECK(!second.success);
 }
 
+void TestMoveBurstAtSameTimestampUsesBoundedAllowance() {
+    game::WorldService world([](const std::string&, const std::string&,
+                                const std::vector<uint8_t>&) {});
+    world.Enter("a", "A", 1000);
+    CHECK(world.TryMove("a", 0.2f, 0.f, 0.f, 0.f, 1001).success);
+    CHECK(world.TryMove("a", 0.4f, 0.f, 0.f, 0.f, 1001).success);
+    CHECK(world.TryMove("a", 0.6f, 0.f, 0.f, 0.f, 1001).success);
+    CHECK(world.TryMove("a", 0.8f, 0.f, 0.f, 0.f, 1001).success);
+    CHECK(world.TryMove("a", 1.0f, 0.f, 0.f, 0.f, 1001).success);
+    auto rejected = world.TryMove("a", 1.3f, 0.f, 0.f, 0.f, 1001);
+    CHECK(!rejected.success);
+    CHECK(rejected.error_msg == "movement too fast");
+}
+
 int main() {
     printf("=== test_world_service ===\n");
     RunTest("TestEnterSnapshotAndNotify", TestEnterSnapshotAndNotify);
@@ -134,6 +148,8 @@ int main() {
     RunTest("TestMoveBroadcastAndLeave", TestMoveBroadcastAndLeave);
     RunTest("TestGatherAndBuildAuthoritativeState", TestGatherAndBuildAuthoritativeState);
     RunTest("TestGatherDistanceAndBuildCostReject", TestGatherDistanceAndBuildCostReject);
+    RunTest("TestMoveBurstAtSameTimestampUsesBoundedAllowance",
+            TestMoveBurstAtSameTimestampUsesBoundedAllowance);
     printf("Result: %d passed, %d failed\n", g_passed, g_failed);
     return g_failed ? 1 : 0;
 }

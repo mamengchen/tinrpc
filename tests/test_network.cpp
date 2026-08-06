@@ -5,6 +5,7 @@
 #include "rpc/connection.h"
 #include "rpc/protocol.h"
 #include "rpc/serializer.h"
+#include "game/db_worker.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -13,6 +14,7 @@
 #include <thread>
 #include <chrono>
 #include <atomic>
+#include <future>
 #include <mutex>
 #include <condition_variable>
 
@@ -159,6 +161,55 @@ void TestEventLoopStop() {
     // 不崩溃即通过
 }
 
+void TestEventLoopRunInLoop() {
+    rpc::EventLoop loop;
+    std::promise<std::thread::id> callback_thread;
+    auto callback_future = callback_thread.get_future();
+
+    std::thread loop_thread([&loop]() { loop.Run(); });
+    std::thread::id loop_thread_id = loop_thread.get_id();
+
+    loop.RunInLoop([&callback_thread]() {
+        callback_thread.set_value(std::this_thread::get_id());
+    });
+
+    assert(callback_future.wait_for(std::chrono::seconds(1)) ==
+           std::future_status::ready);
+    assert(callback_future.get() == loop_thread_id);
+
+    loop.Stop();
+    loop_thread.join();
+}
+
+void TestDbWorkerPostsCompletionToLoop() {
+    rpc::EventLoop loop;
+    game::DbWorker worker(&loop);
+    std::promise<std::pair<std::thread::id, std::thread::id>> callback_threads;
+    auto callback_future = callback_threads.get_future();
+
+    std::thread loop_thread([&loop]() { loop.Run(); });
+    std::thread::id loop_thread_id = loop_thread.get_id();
+    std::thread::id caller_thread_id = std::this_thread::get_id();
+
+    worker.Start();
+    worker.Post([&worker, &callback_threads, caller_thread_id]() {
+        std::thread::id worker_thread_id = std::this_thread::get_id();
+        worker.PostToLoop([&callback_threads, worker_thread_id, caller_thread_id]() {
+            callback_threads.set_value({worker_thread_id, std::this_thread::get_id()});
+        });
+    });
+
+    assert(callback_future.wait_for(std::chrono::seconds(1)) ==
+           std::future_status::ready);
+    auto [worker_thread_id, completion_thread_id] = callback_future.get();
+    assert(worker_thread_id != caller_thread_id);
+    assert(completion_thread_id == loop_thread_id);
+
+    worker.Stop();
+    loop.Stop();
+    loop_thread.join();
+}
+
 // ============================================================
 // 集成测试：完整数据路径
 // 服务端: EventLoop + TestAcceptor（epoll 驱动 accept） + Connection
@@ -274,6 +325,8 @@ int main() {
     printf("\n--- EventLoop ---\n");
     RunTest("TestEventLoopRegisterUnregister", TestEventLoopRegisterUnregister);
     RunTest("TestEventLoopStop", TestEventLoopStop);
+    RunTest("TestEventLoopRunInLoop", TestEventLoopRunInLoop);
+    RunTest("TestDbWorkerPostsCompletionToLoop", TestDbWorkerPostsCompletionToLoop);
 
     printf("\n--- Integration ---\n");
     RunTest("TestFullDataPath", TestFullDataPath);

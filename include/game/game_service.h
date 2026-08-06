@@ -66,6 +66,8 @@ private:
     void OnServerFrame(const rpc::Frame& frame, rpc::Connection* conn);
     void HandleRegister(const rpc::Frame& frame, rpc::Connection* conn);
     void HandleLogin(const rpc::Frame& frame, rpc::Connection* conn);
+    void HandleSelectMap(const rpc::Frame& frame, rpc::Connection* conn);
+    void HandleVoxelEdit(const rpc::Frame& frame, rpc::Connection* conn);
     void HandleMove(const rpc::Frame& frame, rpc::Connection* conn);
     void HandleGather(const rpc::Frame& frame, rpc::Connection* conn);
     void HandlePlaceBuilding(const rpc::Frame& frame, rpc::Connection* conn);

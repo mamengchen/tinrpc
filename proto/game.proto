@@ -93,6 +93,17 @@ message LoginRes {
     string error_msg        = 3;  // 错误描述（失败时返回）
 }
 
+message SelectMapReq {
+    string room_id = 1;
+    int32 map_id = 2;
+}
+
+message SelectMapRes {
+    bool success = 1;
+    int32 map_id = 2;
+    string error_msg = 3;
+}
+
 // ---- 房间操作 ----
 
 // 创建房间
@@ -327,12 +338,14 @@ message PlayerTransform {
     string player_name = 2;
     Vec3   position    = 3;
     float  yaw         = 4;  // degrees
+    int32  appearance  = 5;  // 0=骑士 1=野蛮人 2=法师 3=盗贼
 }
 
 message MoveReq {
     Vec3  position       = 1;
     float yaw            = 2;
     int64 client_time_ms = 3;
+    int32 appearance     = 4;
 }
 
 message MoveRes {
@@ -351,7 +364,13 @@ message WorldStateNtf {
     repeated PlayerTransform players = 1;
     repeated ResourceNode resources = 2;
     repeated Building buildings = 3;
+    repeated VoxelEdit voxel_edits = 4;
 }
+
+message VoxelEdit { sint32 x = 1; sint32 y = 2; sint32 z = 3; int32 action = 4; int32 block_type = 5; }
+message VoxelEditReq { sint32 x = 1; sint32 y = 2; sint32 z = 3; int32 action = 4; int32 block_type = 5; }
+message VoxelEditRes { bool success = 1; string error_msg = 2; VoxelEdit edit = 3; }
+message VoxelEditNtf { VoxelEdit edit = 1; }
 
 enum ResourceType {
     RESOURCE_UNSPECIFIED = 0;
