@@ -39,6 +39,12 @@ struct BuildingApplyResult {
     int stone = 0;
 };
 
+struct CraftApplyResult {
+    bool success = false;
+    std::string error_msg;
+    int wood = 0, stone = 0, dirt = 0, copper = 0, tool_level = 0;
+};
+
 class WorldService {
 public:
     using SendFn = std::function<void(const std::string& player_id, const std::string& method,
@@ -53,21 +59,25 @@ public:
     void Enter(const std::string& player_id, const std::string& name, int64_t now_ms);
     /// 使用存档状态进入世界（found 档或默认值由调用方填好）
     void EnterWithState(const std::string& player_id, const std::string& name, int64_t now_ms,
-                        float x, float y, float z, float yaw, int wood, int stone);
+                        float x, float y, float z, float yaw, int wood, int stone,
+                        int dirt = 12, int copper = 0, int tool_level = 0);
     void Leave(const std::string& player_id);
     bool SelectRoom(const std::string& player_id, const std::string& room_id, int map_id,
                     int64_t now_ms);
     /// 取当前内存快照；玩家不在世界返回 false
     bool GetSnapshot(const std::string& player_id, float* x, float* y, float* z, float* yaw,
-                     int* wood, int* stone) const;
+                     int* wood, int* stone, int* dirt = nullptr, int* copper = nullptr,
+                     int* tool_level = nullptr) const;
     MoveApplyResult TryMove(const std::string& player_id, float x, float y, float z, float yaw,
                             int64_t now_ms, int appearance = 0);
     GatherApplyResult TryGather(const std::string& player_id, const std::string& resource_id);
     BuildingApplyResult TryPlaceBuilding(const std::string& player_id, int building_type, float x,
                                          float y, float z, float yaw);
+    CraftApplyResult TryCraft(const std::string& player_id, int recipe_id);
     bool HasPlayer(const std::string& player_id) const;
     bool ApplyVoxelEdit(const std::string& player_id, int x, int y, int z, int action,
-                        int block_type, std::string* error_msg);
+                        int block_type, std::string* error_msg, int* wood, int* stone,
+                        int* dirt, int* copper);
 
     static constexpr float kMaxSpeed = 15.0f;
     static constexpr float kMoveBurstAllowance = 15.0f;
@@ -87,6 +97,9 @@ private:
         int appearance = 0;
         int wood = 6;
         int stone = 3;
+        int dirt = 12;
+        int copper = 0;
+        int tool_level = 0;
         int64_t last_move_ms = 0;
         float move_allowance = kInitialMoveAllowance;
         int64_t last_broadcast_ms = 0;

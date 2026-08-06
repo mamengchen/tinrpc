@@ -365,11 +365,12 @@ message WorldStateNtf {
     repeated ResourceNode resources = 2;
     repeated Building buildings = 3;
     repeated VoxelEdit voxel_edits = 4;
+    Inventory inventory = 5;
 }
 
 message VoxelEdit { sint32 x = 1; sint32 y = 2; sint32 z = 3; int32 action = 4; int32 block_type = 5; }
 message VoxelEditReq { sint32 x = 1; sint32 y = 2; sint32 z = 3; int32 action = 4; int32 block_type = 5; }
-message VoxelEditRes { bool success = 1; string error_msg = 2; VoxelEdit edit = 3; }
+message VoxelEditRes { bool success = 1; string error_msg = 2; VoxelEdit edit = 3; Inventory inventory = 4; }
 message VoxelEditNtf { VoxelEdit edit = 1; }
 
 enum ResourceType {
@@ -403,7 +404,13 @@ message Building {
 message Inventory {
     int32 wood = 1;
     int32 stone = 2;
+    int32 dirt = 3;
+    int32 copper = 4;
+    int32 tool_level = 5;
 }
+
+message CraftReq { int32 recipe_id = 1; }
+message CraftRes { bool success = 1; string error_msg = 2; Inventory inventory = 4; }
 
 message GatherReq { string resource_id = 1; }
 message GatherRes {

@@ -18,6 +18,7 @@ const VOXEL_WORLD_SCRIPT = preload("res://scripts/game/voxel_world.gd")
 @onready var _inventory: Label = $HUD/Margin/VBox/Inventory
 @onready var _build_info: Label = $HUD/Margin/VBox/BuildInfo
 @onready var _character_info: Label = $HUD/Margin/VBox/CharacterInfo
+@onready var _craft_info: Label = $HUD/Margin/VBox/CraftInfo
 @onready var _preview: MeshInstance3D = $BuildPreview
 @onready var _hud: CanvasLayer = $HUD
 @onready var _login_ui: CanvasLayer = $LoginUI
@@ -45,6 +46,7 @@ var _auto_player := 0
 var _auto_walk := false
 var _auto_map := -1
 var _auto_voxel_test := false
+var _selected_recipe := 1
 var _quick_account_login := false
 var _pending_password := ""
 var _loaded_voxel_edits := 0
@@ -97,6 +99,8 @@ func _ready() -> void:
 	_session.resource_changed.connect(_world.apply_resource)
 	_session.building_placed.connect(_world.apply_building)
 	_session.voxel_edit_received.connect(_on_voxel_edit_received)
+	_session.voxel_edit_completed.connect(_on_voxel_edit_completed)
+	_session.craft_completed.connect(_on_craft_completed)
 	var connect_error := _session.connect_to_server(host, port)
 	_status.text = "正在连接服务器 %s:%d……" % [host, port]
 	if connect_error != OK:
@@ -164,7 +168,16 @@ func _handle_actions() -> void:
 		_session.place_building(_selected_building, _build_position(), _build_yaw)
 		set_meta("build_lock", true)
 	if not Input.is_key_pressed(KEY_B): set_meta("build_lock", false)
+	if Input.is_key_pressed(KEY_C) and not get_meta("craft_select_lock", false):
+		_selected_recipe = _selected_recipe % 3 + 1
+		set_meta("craft_select_lock", true)
+	if not Input.is_key_pressed(KEY_C): set_meta("craft_select_lock", false)
+	if Input.is_key_pressed(KEY_V) and not get_meta("craft_lock", false):
+		_session.craft(_selected_recipe)
+		set_meta("craft_lock", true)
+	if not Input.is_key_pressed(KEY_V): set_meta("craft_lock", false)
 	_update_build_label()
+	_update_craft_label()
 
 
 func _build_position() -> Vector3:
@@ -316,6 +329,7 @@ func _run_auto_voxel_test() -> void:
 
 
 func _on_world_state(state: Dictionary) -> void:
+	_update_inventory(state.get("inventory", {}))
 	for player in state.get("players", []):
 		if player.get("player_id", "") == _spawner.local_player_id:
 			_local_player.global_position = player.get("position", Vector3.ZERO)
@@ -331,6 +345,21 @@ func _on_world_state(state: Dictionary) -> void:
 func _on_voxel_edit_received(edit: Dictionary) -> void:
 	_voxels.apply_network_edit(edit)
 	_status.text = "方块同步成功：服务端已广播本次修改"
+
+
+func _on_voxel_edit_completed(result: Dictionary) -> void:
+	if result.get("success", false):
+		_update_inventory(result.get("inventory", {}))
+	else:
+		_status.text = "方块操作失败：%s" % _localized_error(result.get("error_msg", "unknown"))
+
+
+func _on_craft_completed(result: Dictionary) -> void:
+	if result.get("success", false):
+		_update_inventory(result.get("inventory", {}))
+		_status.text = "制作成功"
+	else:
+		_status.text = "制作失败：%s" % _localized_error(result.get("error_msg", "unknown"))
 
 
 func _on_move_completed(success: bool, error_msg: String, corrected_position: Vector3) -> void:
@@ -358,7 +387,13 @@ func _on_building_completed(result: Dictionary) -> void:
 
 
 func _update_inventory(value: Dictionary) -> void:
-	_inventory.text = "木材：%d    石料：%d" % [value.get("wood", 0), value.get("stone", 0)]
+	var tools := ["徒手", "木镐", "石镐", "铜镐"]
+	_inventory.text = "木材：%d  石料：%d  泥土：%d  铜矿：%d  工具：%s" % [value.get("wood", 0), value.get("stone", 0), value.get("dirt", 0), value.get("copper", 0), tools[clampi(value.get("tool_level", 0), 0, 3)]]
+
+
+func _update_craft_label() -> void:
+	var recipes := {1: "木镐（2 木材）", 2: "石镐（2 木材 + 5 石料）", 3: "铜镐（2 木材 + 5 铜矿）"}
+	_craft_info.text = "制作：%s｜[C] 切换配方  [V] 制作" % recipes[_selected_recipe]
 
 
 func _update_build_label() -> void:
@@ -387,6 +422,14 @@ func _localized_error(error_msg: String) -> String:
 		"movement too fast": "移动同步过快，位置已重新同步",
 		"position outside world": "不能移动到地图边界之外",
 		"player is not in world": "玩家尚未进入世界",
+		"block is too far away": "目标方块距离太远",
+		"block already removed": "这个方块已经被挖掉",
+		"block occupied": "这个位置已经有方块",
+		"not enough material": "对应材料不足",
+		"unsupported place material": "这种方块暂时不能放置",
+		"invalid recipe": "配方不存在",
+		"tool already crafted": "已经拥有该工具或更高级工具",
+		"previous tool required": "需要先制作前一级工具",
 		"db unavailable": "账号数据库暂时不可用",
 		"服务器拒绝注册": "服务器拒绝注册",
 	}

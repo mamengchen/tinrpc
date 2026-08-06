@@ -15,7 +15,8 @@ signal building_completed(result: Dictionary)
 signal resource_changed(resource: Dictionary)
 signal building_placed(building: Dictionary)
 signal voxel_edit_received(edit: Dictionary)
-signal voxel_edit_completed(success: bool, error_msg: String)
+signal voxel_edit_completed(result: Dictionary)
+signal craft_completed(result: Dictionary)
 signal transport_error(method: String)
 
 var _rpc: RpcClient
@@ -75,6 +76,10 @@ func edit_voxel(edit: Dictionary) -> int:
 	return _send("VoxelEdit", ProtoBridge.encode_voxel_edit(edit), "voxel")
 
 
+func craft(recipe_id: int) -> int:
+	return _send("Craft", ProtoBridge.encode_craft_req(recipe_id), "craft")
+
+
 func _ensure_client() -> void:
 	if _rpc != null:
 		return
@@ -116,7 +121,8 @@ func _on_response(request_id: int, method: String, body: PackedByteArray, is_err
 		elif request_kind == "move": move_completed.emit(false, "服务器拒绝移动请求", Vector3.ZERO)
 		elif request_kind == "gather": gather_completed.emit({"success": false, "error_msg": "服务器拒绝采集请求"})
 		elif request_kind == "building": building_completed.emit({"success": false, "error_msg": "服务器拒绝建造请求"})
-		elif request_kind == "voxel": voxel_edit_completed.emit(false, "服务器拒绝方块操作")
+		elif request_kind == "voxel": voxel_edit_completed.emit({"success": false, "error_msg": "服务器拒绝方块操作"})
+		elif request_kind == "craft": craft_completed.emit({"success": false, "error_msg": "服务器拒绝制作请求"})
 		return
 	if request_kind == "register":
 		var result := ProtoBridge.decode_register_res(body)
@@ -135,7 +141,9 @@ func _on_response(request_id: int, method: String, body: PackedByteArray, is_err
 	elif request_kind == "building":
 		building_completed.emit(ProtoBridge.decode_place_building_res(body))
 	elif request_kind == "voxel":
-		voxel_edit_completed.emit(true, "")
+		voxel_edit_completed.emit(ProtoBridge.decode_voxel_edit_res(body))
+	elif request_kind == "craft":
+		craft_completed.emit(ProtoBridge.decode_craft_res(body))
 
 
 func _on_notify(method: String, body: PackedByteArray) -> void:

@@ -141,6 +141,41 @@ void TestMoveBurstAtSameTimestampUsesBoundedAllowance() {
     CHECK(rejected.error_msg == "movement too fast");
 }
 
+void TestVoxelMaterialEconomyAndDuplicateGuard() {
+    game::WorldService world([](const std::string&, const std::string&,
+                                const std::vector<uint8_t>&) {});
+    world.Enter("a", "A", 1000);
+    std::string error;
+    int wood = 0, stone = 0, dirt = 0, copper = 0;
+    CHECK(world.ApplyVoxelEdit("a", 1, 0, 0, 1, 2, &error,
+                               &wood, &stone, &dirt, &copper));
+    CHECK(wood == 6 && stone == 3 && dirt == 13 && copper == 0);
+    CHECK(!world.ApplyVoxelEdit("a", 1, 0, 0, 1, 2, &error,
+                                &wood, &stone, &dirt, &copper));
+    CHECK(error == "block already removed");
+    CHECK(world.ApplyVoxelEdit("a", 1, 0, 0, 2, 4, &error,
+                               &wood, &stone, &dirt, &copper));
+    CHECK(wood == 5 && dirt == 13);
+    CHECK(world.ApplyVoxelEdit("a", 1, 0, 0, 1, 4, &error,
+                               &wood, &stone, &dirt, &copper));
+    CHECK(wood == 6 && dirt == 13);
+}
+
+void TestCraftProgressionAndCosts() {
+    game::WorldService world([](const std::string&, const std::string&,
+                                const std::vector<uint8_t>&) {});
+    world.EnterWithState("a", "A", 1000, 0, 0, 0, 0, 10, 10, 12, 10, 0);
+    auto stone_first = world.TryCraft("a", 2);
+    CHECK(!stone_first.success && stone_first.error_msg == "previous tool required");
+    auto wood_pick = world.TryCraft("a", 1);
+    CHECK(wood_pick.success && wood_pick.wood == 8 && wood_pick.tool_level == 1);
+    auto stone_pick = world.TryCraft("a", 2);
+    CHECK(stone_pick.success && stone_pick.wood == 6 && stone_pick.stone == 5);
+    auto copper_pick = world.TryCraft("a", 3);
+    CHECK(copper_pick.success && copper_pick.wood == 4 && copper_pick.copper == 5);
+    CHECK(!world.TryCraft("a", 3).success);
+}
+
 int main() {
     printf("=== test_world_service ===\n");
     RunTest("TestEnterSnapshotAndNotify", TestEnterSnapshotAndNotify);
@@ -150,6 +185,9 @@ int main() {
     RunTest("TestGatherDistanceAndBuildCostReject", TestGatherDistanceAndBuildCostReject);
     RunTest("TestMoveBurstAtSameTimestampUsesBoundedAllowance",
             TestMoveBurstAtSameTimestampUsesBoundedAllowance);
+    RunTest("TestVoxelMaterialEconomyAndDuplicateGuard",
+            TestVoxelMaterialEconomyAndDuplicateGuard);
+    RunTest("TestCraftProgressionAndCosts", TestCraftProgressionAndCosts);
     printf("Result: %d passed, %d failed\n", g_passed, g_failed);
     return g_failed ? 1 : 0;
 }

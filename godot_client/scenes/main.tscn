@@ -97,7 +97,7 @@ material_override = SubResource("PreviewMaterial")
 offset_left = 18.0
 offset_top = 18.0
 offset_right = 850.0
-offset_bottom = 160.0
+offset_bottom = 205.0
 theme_override_constants/margin_left = 14
 theme_override_constants/margin_top = 10
 theme_override_constants/margin_right = 14
@@ -133,6 +133,11 @@ text = "人物：[F1] 骑士  [F2] 野蛮人  [F3] 法师  [F4] 盗贼"
 theme_override_colors/font_color = Color(1, 0.9, 0.55, 1)
 theme_override_font_sizes/font_size = 16
 text = "快捷栏：[4] 泥土  [5] 石头  [6] 木材｜鼠标左键挖掘  右键放置"
+
+[node name="CraftInfo" type="Label" parent="HUD/Margin/VBox"]
+theme_override_colors/font_color = Color(0.95, 0.78, 1, 1)
+theme_override_font_sizes/font_size = 16
+text = "制作：木镐（2 木材）｜[C] 切换配方  [V] 制作"
 
 [node name="LoginUI" type="CanvasLayer" parent="."]
 layer = 10
