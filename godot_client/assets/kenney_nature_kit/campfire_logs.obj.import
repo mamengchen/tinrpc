@@ -1,0 +1,25 @@
+[remap]
+
+importer="wavefront_obj"
+importer_version=1
+type="Mesh"
+uid="uid://y504s135bgc"
+path="res://.godot/imported/campfire_logs.obj-46f7ac804d16acf68e6931e328dd374f.mesh"
+
+[deps]
+
+files=["res://.godot/imported/campfire_logs.obj-46f7ac804d16acf68e6931e328dd374f.mesh"]
+
+source_file="res://assets/kenney_nature_kit/campfire_logs.obj"
+dest_files=["res://.godot/imported/campfire_logs.obj-46f7ac804d16acf68e6931e328dd374f.mesh", "res://.godot/imported/campfire_logs.obj-46f7ac804d16acf68e6931e328dd374f.mesh"]
+
+[params]
+
+generate_tangents=true
+generate_lods=true
+generate_shadow_mesh=true
+generate_lightmap_uv2=false
+generate_lightmap_uv2_texel_size=0.2
+scale_mesh=Vector3(1, 1, 1)
+offset_mesh=Vector3(0, 0, 0)
+force_disable_mesh_compression=false

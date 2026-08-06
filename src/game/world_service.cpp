@@ -124,6 +124,7 @@ void WorldService::EnterWithState(const std::string& player_id, const std::strin
     player.wood = wood;
     player.stone = stone;
     player.last_move_ms = now_ms;
+    player.move_allowance = kInitialMoveAllowance;
     player.last_broadcast_ms = now_ms - kMinBroadcastIntervalMs;
     (void)inserted;
     SendWorldStateTo(player_id);
@@ -131,8 +132,29 @@ void WorldService::EnterWithState(const std::string& player_id, const std::strin
 }
 
 void WorldService::Leave(const std::string& player_id) {
-    if (players_.erase(player_id) != 0)
-        BroadcastLeave(player_id);
+    auto it = players_.find(player_id);
+    if (it == players_.end()) return;
+    const std::string room_id = it->second.room_id;
+    players_.erase(it);
+    BroadcastLeave(player_id, room_id);
+}
+
+bool WorldService::SelectRoom(const std::string& player_id, const std::string& room_id,
+                              int map_id, int64_t now_ms) {
+    auto it = players_.find(player_id);
+    if (it == players_.end() || room_id.empty() || map_id < 0 || map_id > 2) return false;
+    Player& player = it->second;
+    BroadcastLeave(player_id, player.room_id);
+    player.room_id = room_id;
+    player.map_id = map_id;
+    player.x = static_cast<float>(std::hash<std::string>{}(player_id) % 5) - 2.0f;
+    player.y = 0.0f;
+    player.z = 0.0f;
+    player.last_move_ms = now_ms;
+    player.move_allowance = kInitialMoveAllowance;
+    SendWorldStateTo(player_id);
+    BroadcastEnter(player);
+    return true;
 }
 
 bool WorldService::GetSnapshot(const std::string& player_id, float* x, float* y, float* z,
@@ -157,7 +179,7 @@ bool WorldService::GetSnapshot(const std::string& player_id, float* x, float* y,
 }
 
 MoveApplyResult WorldService::TryMove(const std::string& player_id, float x, float y, float z,
-                                      float yaw, int64_t now_ms) {
+                                      float yaw, int64_t now_ms, int appearance) {
     auto it = players_.find(player_id);
     if (it == players_.end()) return {false, "player is not in world"};
     Player& player = it->second;
@@ -166,17 +188,22 @@ MoveApplyResult WorldService::TryMove(const std::string& player_id, float x, flo
     const float clamped_z = std::clamp(z, -kBound, kBound);
     const bool clamped = clamped_x != x || clamped_y != y || clamped_z != z;
     const float distance = Distance(clamped_x, clamped_y, clamped_z, player.x, player.y, player.z);
-    const int64_t dt_ms = std::max(now_ms - player.last_move_ms, int64_t{1});
-    const float max_distance = kMaxSpeed * static_cast<float>(dt_ms) / 1000.0f;
-    if (clamped || distance > max_distance) {
+    const int64_t dt_ms = std::max(now_ms - player.last_move_ms, int64_t{0});
+    player.move_allowance = std::min(
+        kMoveBurstAllowance,
+        player.move_allowance + kMaxSpeed * static_cast<float>(dt_ms) / 1000.0f);
+    player.last_move_ms = now_ms;
+    if (clamped || distance > player.move_allowance) {
         return {false, clamped ? "position outside world" : "movement too fast", player.x,
                 player.y, player.z};
     }
+
+    player.move_allowance = std::max(0.0f, player.move_allowance - distance);
     player.x = clamped_x;
     player.y = clamped_y;
     player.z = clamped_z;
     player.yaw = yaw;
-    player.last_move_ms = now_ms;
+    player.appearance = std::clamp(appearance, 0, 3);
     BroadcastPose(player, now_ms, false);
     return {true, "", player.x, player.y, player.z};
 }
@@ -281,11 +308,14 @@ bool WorldService::HasPlayer(const std::string& player_id) const {
 void WorldService::SendWorldStateTo(const std::string& to) {
     WorldStateNtf state;
     for (const auto& [_, player] : players_) {
+        auto target = players_.find(to);
+        if (target == players_.end() || player.room_id != target->second.room_id) continue;
         auto* transform = state.add_players();
         transform->set_player_id(player.player_id);
         transform->set_player_name(player.name);
         FillVec3(transform->mutable_position(), player.x, player.y, player.z);
         transform->set_yaw(player.yaw);
+        transform->set_appearance(player.appearance);
     }
     for (const auto& [_, resource] : resources_) {
         auto* out = state.add_resources();
@@ -302,9 +332,46 @@ void WorldService::SendWorldStateTo(const std::string& to) {
         FillVec3(out->mutable_position(), building.x, building.y, building.z);
         out->set_yaw(building.yaw);
     }
+    auto target = players_.find(to);
+    if (target != players_.end()) {
+        for (const auto& [_, edit] : voxel_edits_[target->second.room_id]) {
+            auto* out = state.add_voxel_edits();
+            out->set_x(edit.x); out->set_y(edit.y); out->set_z(edit.z);
+            out->set_action(edit.action); out->set_block_type(edit.block_type);
+        }
+    }
     std::string buffer;
     state.SerializeToString(&buffer);
     send_(to, "WorldStateNtf", {buffer.begin(), buffer.end()});
+}
+
+bool WorldService::ApplyVoxelEdit(const std::string& player_id, int x, int y, int z, int action,
+                                  int block_type, std::string* error_msg) {
+    auto it = players_.find(player_id);
+    if (it == players_.end()) { if (error_msg) *error_msg = "player is not in world"; return false; }
+    const Player& player = it->second;
+    if (std::hypot(static_cast<float>(x) - player.x, static_cast<float>(z) - player.z) > 5.0f) {
+        if (error_msg) *error_msg = "block is too far away"; return false;
+    }
+    if ((action != 1 && action != 2) || block_type < 0 || block_type > 5 || y < -1 || y > 4) {
+        if (error_msg) *error_msg = "invalid voxel edit"; return false;
+    }
+    VoxelEditState edit{x, y, z, action, block_type};
+    const std::string key = std::to_string(x) + ":" + std::to_string(y) + ":" + std::to_string(z);
+    voxel_edits_[player.room_id][key] = edit;
+    BroadcastVoxelEdit(player.room_id, edit);
+    return true;
+}
+
+void WorldService::BroadcastVoxelEdit(const std::string& room_id, const VoxelEditState& edit) {
+    VoxelEditNtf ntf;
+    auto* out = ntf.mutable_edit();
+    out->set_x(edit.x); out->set_y(edit.y); out->set_z(edit.z);
+    out->set_action(edit.action); out->set_block_type(edit.block_type);
+    std::string buffer; ntf.SerializeToString(&buffer);
+    const std::vector<uint8_t> body(buffer.begin(), buffer.end());
+    for (const auto& [id, player] : players_)
+        if (player.room_id == room_id) send_(id, "VoxelEditNtf", body);
 }
 
 void WorldService::BroadcastEnter(const Player& player) {
@@ -313,19 +380,22 @@ void WorldService::BroadcastEnter(const Player& player) {
     transform.set_player_name(player.name);
     FillVec3(transform.mutable_position(), player.x, player.y, player.z);
     transform.set_yaw(player.yaw);
+    transform.set_appearance(player.appearance);
     std::string buffer;
     transform.SerializeToString(&buffer);
     const std::vector<uint8_t> body(buffer.begin(), buffer.end());
-    for (const auto& [id, _] : players_) if (id != player.player_id) send_(id, "PlayerEnterNtf", body);
+    for (const auto& [id, other] : players_)
+        if (id != player.player_id && other.room_id == player.room_id) send_(id, "PlayerEnterNtf", body);
 }
 
-void WorldService::BroadcastLeave(const std::string& player_id) {
+void WorldService::BroadcastLeave(const std::string& player_id, const std::string& room_id) {
     WorldPlayerLeaveNtf leave;
     leave.set_player_id(player_id);
     std::string buffer;
     leave.SerializeToString(&buffer);
     const std::vector<uint8_t> body(buffer.begin(), buffer.end());
-    for (const auto& [id, _] : players_) send_(id, "PlayerLeaveNtf", body);
+    for (const auto& [id, other] : players_)
+        if (other.room_id == room_id) send_(id, "PlayerLeaveNtf", body);
 }
 
 void WorldService::BroadcastPose(const Player& player, int64_t now_ms, bool force) {
@@ -337,10 +407,12 @@ void WorldService::BroadcastPose(const Player& player, int64_t now_ms, bool forc
     transform->set_player_name(player.name);
     FillVec3(transform->mutable_position(), player.x, player.y, player.z);
     transform->set_yaw(player.yaw);
+    transform->set_appearance(player.appearance);
     std::string buffer;
     state.SerializeToString(&buffer);
     const std::vector<uint8_t> body(buffer.begin(), buffer.end());
-    for (const auto& [id, _] : players_) if (id != player.player_id) send_(id, "WorldStateNtf", body);
+    for (const auto& [id, other] : players_)
+        if (id != player.player_id && other.room_id == player.room_id) send_(id, "WorldStateNtf", body);
     it->second.last_broadcast_ms = now_ms;
 }
 

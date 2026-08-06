@@ -1,38 +1,277 @@
-[gd_scene load_steps=6 format=3]
+[gd_scene load_steps=12 format=3]
 
 [ext_resource type="Script" path="res://scripts/game/main.gd" id="1_main"]
 [ext_resource type="Script" path="res://scripts/game/player_spawner.gd" id="2_spawner"]
+[ext_resource type="Script" path="res://scripts/game/survival_world.gd" id="3_world"]
+[ext_resource type="Mesh" path="res://assets/kenney_survival/tool-axe.obj" id="4_axe"]
+[ext_resource type="Script" path="res://scripts/game/map_environment.gd" id="5_map"]
+[ext_resource type="Script" path="res://scripts/game/voxel_world.gd" id="6_voxel"]
 
-[sub_resource type="BoxMesh" id="BoxMesh_local"]
-size = Vector3(1, 1, 1)
+[sub_resource type="CapsuleMesh" id="Capsule_player"]
+radius = 0.45
+height = 1.8
 
-[sub_resource type="PlaneMesh" id="PlaneMesh_floor"]
-size = Vector2(40, 40)
+[sub_resource type="StandardMaterial3D" id="PlayerMaterial"]
+albedo_color = Color(0.14, 0.55, 0.95, 1)
+roughness = 0.75
 
-[sub_resource type="StandardMaterial3D" id="StandardMaterial_floor"]
-albedo_color = Color(0.12, 0.17, 0.22, 1)
+[sub_resource type="PlaneMesh" id="Plane_floor"]
+size = Vector2(80, 80)
+
+[sub_resource type="StandardMaterial3D" id="FloorMaterial"]
+albedo_color = Color(0.20, 0.34, 0.18, 1)
+roughness = 1.0
+
+[sub_resource type="BoxMesh" id="PreviewMesh"]
+
+[sub_resource type="StandardMaterial3D" id="PreviewMaterial"]
+transparency = 1
+albedo_color = Color(0.2, 0.9, 0.75, 0.42)
+shading_mode = 0
+
+[sub_resource type="Environment" id="Environment_world"]
+background_mode = 1
+background_color = Color(0.42, 0.66, 0.82, 1)
+ambient_light_source = 3
+ambient_light_color = Color(0.68, 0.75, 0.82, 1)
+ambient_light_energy = 0.48
+tonemap_mode = 2
+fog_enabled = true
+fog_light_color = Color(0.48, 0.59, 0.61, 1)
+fog_light_energy = 0.3
+fog_density = 0.0035
+fog_height = 2.0
+fog_height_density = 0.03
 
 [node name="Main" type="Node3D"]
 script = ExtResource("1_main")
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_world")
 
-[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
-rotation_degrees = Vector3(-50, -30, 0)
+[node name="Sun" type="DirectionalLight3D" parent="."]
+rotation_degrees = Vector3(-55, -28, 0)
 shadow_enabled = true
+directional_shadow_max_distance = 60.0
 
 [node name="Camera3D" type="Camera3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 0.894427, 0.447214, 0, -0.447214, 0.894427, 0, 7, 12)
+position = Vector3(0, 10, 12)
 current = true
 
 [node name="Floor" type="MeshInstance3D" parent="."]
-mesh = SubResource("PlaneMesh_floor")
-material_override = SubResource("StandardMaterial_floor")
+mesh = SubResource("Plane_floor")
+material_override = SubResource("FloorMaterial")
+
+[node name="MapEnvironment" type="Node3D" parent="."]
+script = ExtResource("5_map")
 
 [node name="LocalPlayer" type="Node3D" parent="."]
 
-[node name="MeshInstance3D" type="MeshInstance3D" parent="LocalPlayer"]
-mesh = SubResource("BoxMesh_local")
+[node name="Body" type="MeshInstance3D" parent="LocalPlayer"]
+position = Vector3(0, 0.9, 0)
+mesh = SubResource("Capsule_player")
+material_override = SubResource("PlayerMaterial")
+
+[node name="Axe" type="MeshInstance3D" parent="LocalPlayer"]
+position = Vector3(0.5, 0.9, -0.1)
+rotation_degrees = Vector3(0, 0, -18)
+scale = Vector3(0.8, 0.8, 0.8)
+mesh = ExtResource("4_axe")
 
 [node name="PlayerSpawner" type="Node3D" parent="."]
 script = ExtResource("2_spawner")
+
+[node name="SurvivalWorld" type="Node3D" parent="."]
+script = ExtResource("3_world")
+
+[node name="VoxelWorld" type="Node3D" parent="."]
+script = ExtResource("6_voxel")
+
+[node name="BuildPreview" type="MeshInstance3D" parent="."]
+mesh = SubResource("PreviewMesh")
+material_override = SubResource("PreviewMaterial")
+
+[node name="HUD" type="CanvasLayer" parent="."]
+
+[node name="Margin" type="MarginContainer" parent="HUD"]
+offset_left = 18.0
+offset_top = 18.0
+offset_right = 850.0
+offset_bottom = 160.0
+theme_override_constants/margin_left = 14
+theme_override_constants/margin_top = 10
+theme_override_constants/margin_right = 14
+theme_override_constants/margin_bottom = 10
+
+[node name="VBox" type="VBoxContainer" parent="HUD/Margin"]
+theme_override_constants/separation = 6
+
+[node name="Title" type="Label" parent="HUD/Margin/VBox"]
+theme_override_colors/font_color = Color(1, 0.87, 0.45, 1)
+theme_override_font_sizes/font_size = 24
+text = "天融荒野"
+
+[node name="Status" type="Label" parent="HUD/Margin/VBox"]
+theme_override_font_sizes/font_size = 16
+text = "正在连接服务器……"
+
+[node name="Inventory" type="Label" parent="HUD/Margin/VBox"]
+theme_override_colors/font_color = Color(0.82, 1, 0.82, 1)
+theme_override_font_sizes/font_size = 18
+text = "木材：6    石料：3"
+
+[node name="BuildInfo" type="Label" parent="HUD/Margin/VBox"]
+theme_override_font_sizes/font_size = 16
+text = "建造操作"
+
+[node name="CharacterInfo" type="Label" parent="HUD/Margin/VBox"]
+theme_override_colors/font_color = Color(0.82, 0.9, 1, 1)
+theme_override_font_sizes/font_size = 16
+text = "人物：[F1] 骑士  [F2] 野蛮人  [F3] 法师  [F4] 盗贼"
+
+[node name="VoxelInfo" type="Label" parent="HUD/Margin/VBox"]
+theme_override_colors/font_color = Color(1, 0.9, 0.55, 1)
+theme_override_font_sizes/font_size = 16
+text = "快捷栏：[4] 泥土  [5] 石头  [6] 木材｜鼠标左键挖掘  右键放置"
+
+[node name="LoginUI" type="CanvasLayer" parent="."]
+layer = 10
+
+[node name="Shade" type="ColorRect" parent="LoginUI"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.05, 0.09, 0.1, 0.86)
+
+[node name="Center" type="CenterContainer" parent="LoginUI"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Panel" type="PanelContainer" parent="LoginUI/Center"]
+custom_minimum_size = Vector2(460, 560)
+
+[node name="VBox" type="VBoxContainer" parent="LoginUI/Center/Panel"]
+theme_override_constants/separation = 16
+alignment = 1
+
+[node name="Title" type="Label" parent="LoginUI/Center/Panel/VBox"]
+theme_override_colors/font_color = Color(1, 0.87, 0.45, 1)
+theme_override_font_sizes/font_size = 30
+text = "天融荒野"
+horizontal_alignment = 1
+
+[node name="Prompt" type="Label" parent="LoginUI/Center/Panel/VBox"]
+theme_override_font_sizes/font_size = 18
+text = "选择玩家账号进入多人世界\n首次选择会自动完成注册"
+horizontal_alignment = 1
+
+[node name="Username" type="LineEdit" parent="LoginUI/Center/Panel/VBox"]
+custom_minimum_size = Vector2(380, 46)
+theme_override_font_sizes/font_size = 18
+placeholder_text = "请输入账号（至少 3 个字符）"
+clear_button_enabled = true
+
+[node name="Password" type="LineEdit" parent="LoginUI/Center/Panel/VBox"]
+custom_minimum_size = Vector2(380, 46)
+theme_override_font_sizes/font_size = 18
+placeholder_text = "请输入密码（至少 6 个字符）"
+secret = true
+secret_character = "●"
+
+[node name="AccountActions" type="HBoxContainer" parent="LoginUI/Center/Panel/VBox"]
+theme_override_constants/separation = 12
+alignment = 1
+
+[node name="Register" type="Button" parent="LoginUI/Center/Panel/VBox/AccountActions"]
+custom_minimum_size = Vector2(180, 48)
+theme_override_font_sizes/font_size = 18
+text = "注册账号"
+
+[node name="Login" type="Button" parent="LoginUI/Center/Panel/VBox/AccountActions"]
+custom_minimum_size = Vector2(180, 48)
+theme_override_font_sizes/font_size = 18
+text = "登录账号"
+
+[node name="Player1" type="Button" parent="LoginUI/Center/Panel/VBox"]
+custom_minimum_size = Vector2(360, 52)
+theme_override_font_sizes/font_size = 20
+text = "玩家 1"
+
+[node name="Player2" type="Button" parent="LoginUI/Center/Panel/VBox"]
+custom_minimum_size = Vector2(360, 52)
+theme_override_font_sizes/font_size = 20
+text = "玩家 2"
+
+[node name="Player3" type="Button" parent="LoginUI/Center/Panel/VBox"]
+custom_minimum_size = Vector2(360, 52)
+theme_override_font_sizes/font_size = 20
+text = "玩家 3"
+
+[node name="LoginStatus" type="Label" parent="LoginUI/Center/Panel/VBox"]
+theme_override_colors/font_color = Color(0.75, 0.9, 1, 1)
+theme_override_font_sizes/font_size = 16
+text = "正在连接服务器……"
+horizontal_alignment = 1
+
+[node name="RoomUI" type="CanvasLayer" parent="."]
+layer = 11
+visible = false
+
+[node name="Shade" type="ColorRect" parent="RoomUI"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.04, 0.07, 0.09, 0.9)
+
+[node name="Center" type="CenterContainer" parent="RoomUI"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Panel" type="PanelContainer" parent="RoomUI/Center"]
+custom_minimum_size = Vector2(520, 440)
+
+[node name="VBox" type="VBoxContainer" parent="RoomUI/Center/Panel"]
+theme_override_constants/separation = 18
+alignment = 1
+
+[node name="Title" type="Label" parent="RoomUI/Center/Panel/VBox"]
+theme_override_colors/font_color = Color(1, 0.87, 0.45, 1)
+theme_override_font_sizes/font_size = 30
+text = "选择地图房间"
+horizontal_alignment = 1
+
+[node name="Prompt" type="Label" parent="RoomUI/Center/Panel/VBox"]
+theme_override_font_sizes/font_size = 17
+text = "同一地图房间的玩家可以互相看见"
+horizontal_alignment = 1
+
+[node name="Map0" type="Button" parent="RoomUI/Center/Panel/VBox"]
+custom_minimum_size = Vector2(440, 70)
+theme_override_font_sizes/font_size = 21
+text = "青翠河谷｜河流、木桥与森林营地"
+
+[node name="Map1" type="Button" parent="RoomUI/Center/Panel/VBox"]
+custom_minimum_size = Vector2(440, 70)
+theme_override_font_sizes/font_size = 21
+text = "荒漠遗迹｜沙地、岩山与废弃营地"
+
+[node name="Map2" type="Button" parent="RoomUI/Center/Panel/VBox"]
+custom_minimum_size = Vector2(440, 70)
+theme_override_font_sizes/font_size = 21
+text = "雪松高地｜雪原、松林与冰川河道"
+
+[node name="RoomStatus" type="Label" parent="RoomUI/Center/Panel/VBox"]
+theme_override_colors/font_color = Color(0.75, 0.9, 1, 1)
+theme_override_font_sizes/font_size = 16
+text = "请选择要进入的地图"
+horizontal_alignment = 1

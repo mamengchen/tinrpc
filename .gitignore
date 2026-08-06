@@ -46,3 +46,6 @@ docs/doxygen/
 # My notes
 claude聊天记录/
 实现原理/
+
+# Godot editor cache
+godot_client/.godot/
