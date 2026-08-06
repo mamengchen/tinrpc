@@ -214,15 +214,38 @@ void GameService::HandleSelectMap(const rpc::Frame& frame, rpc::Connection* conn
 
 void GameService::HandleVoxelEdit(const rpc::Frame& frame, rpc::Connection* conn) {
     VoxelEditReq req; VoxelEditRes res; std::string error;
+    int wood = 0, stone = 0, dirt = 0, copper = 0;
     auto player = fd_to_player_.find(conn->GetFd());
     const bool parsed = req.ParseFromArray(frame.body.data(), static_cast<int>(frame.body.size()));
     const bool ok = player != fd_to_player_.end() && parsed &&
-        world_->ApplyVoxelEdit(player->second, req.x(), req.y(), req.z(), req.action(), req.block_type(), &error);
-    if (ok) SaveSceneAsync();
+        world_->ApplyVoxelEdit(player->second, req.x(), req.y(), req.z(), req.action(), req.block_type(),
+                               &error, &wood, &stone, &dirt, &copper);
+    if (ok) { SaveSceneAsync(); SavePlayerAsync(player->second); }
     res.set_success(ok); res.set_error_msg(error);
     if (parsed) { auto* e=res.mutable_edit(); e->set_x(req.x()); e->set_y(req.y()); e->set_z(req.z()); e->set_action(req.action()); e->set_block_type(req.block_type()); }
+    if (ok) { auto* inventory = res.mutable_inventory(); inventory->set_wood(wood); inventory->set_stone(stone); inventory->set_dirt(dirt); inventory->set_copper(copper); }
     std::string buf; res.SerializeToString(&buf);
     conn->Send(rpc::ProtocolFrame::Encode(frame.request_id, rpc::MessageType::Response, "VoxelEdit", {buf.begin(), buf.end()}));
+}
+
+void GameService::HandleCraft(const rpc::Frame& frame, rpc::Connection* conn) {
+    CraftReq req; CraftRes res;
+    auto player = fd_to_player_.find(conn->GetFd());
+    CraftApplyResult result;
+    if (player == fd_to_player_.end()) result.error_msg = "player is not in world";
+    else if (!req.ParseFromArray(frame.body.data(), static_cast<int>(frame.body.size())))
+        result.error_msg = "invalid recipe";
+    else result = world_->TryCraft(player->second, req.recipe_id());
+    res.set_success(result.success); res.set_error_msg(result.error_msg);
+    if (result.success) {
+        auto* inv = res.mutable_inventory();
+        inv->set_wood(result.wood); inv->set_stone(result.stone); inv->set_dirt(result.dirt);
+        inv->set_copper(result.copper); inv->set_tool_level(result.tool_level);
+        SavePlayerAsync(player->second);
+    }
+    std::string buf; res.SerializeToString(&buf);
+    conn->Send(rpc::ProtocolFrame::Encode(frame.request_id, rpc::MessageType::Response,
+                                          "Craft", {buf.begin(), buf.end()}));
 }
 
 void GameService::HandleGather(const rpc::Frame& frame, rpc::Connection* conn) {
@@ -389,7 +412,8 @@ void GameService::HandleLogin(const rpc::Frame& frame, rpc::Connection* conn) {
             RegisterPlayerConn(result.player_id, c);
             metrics_.OnConnect();
             world_->EnterWithState(result.player_id, result.player_id, NowMs(), saved.x, saved.y,
-                                   saved.z, saved.yaw, saved.wood, saved.stone);
+                                   saved.z, saved.yaw, saved.wood, saved.stone, saved.dirt,
+                                   saved.copper, saved.tool_level);
 
             res.set_success(true);
             res.mutable_player_info()->set_player_id(result.player_id);
@@ -398,8 +422,9 @@ void GameService::HandleLogin(const rpc::Frame& frame, rpc::Connection* conn) {
             res.SerializeToString(&buf);
             c->Send(rpc::ProtocolFrame::Encode(rid, rpc::MessageType::Response, "Login",
                                                {buf.begin(), buf.end()}));
-            printf("[GameService] 玩家登录: %s (pos=%.1f,%.1f,%.1f wood=%d stone=%d)\n",
-                   result.player_id.c_str(), saved.x, saved.y, saved.z, saved.wood, saved.stone);
+            printf("[GameService] 玩家登录: %s (pos=%.1f,%.1f,%.1f wood=%d stone=%d dirt=%d copper=%d)\n",
+                   result.player_id.c_str(), saved.x, saved.y, saved.z, saved.wood, saved.stone,
+                   saved.dirt, saved.copper);
         });
     });
 }
@@ -429,6 +454,7 @@ void GameService::OnServerFrame(const rpc::Frame& frame, rpc::Connection* conn) 
         return;
     }
     if (frame.method_name == "VoxelEdit") { HandleVoxelEdit(frame, conn); return; }
+    if (frame.method_name == "Craft") { HandleCraft(frame, conn); return; }
 
     if (frame.method_name == "Gather") {
         HandleGather(frame, conn);
@@ -464,7 +490,8 @@ void GameService::OnServerFrame(const rpc::Frame& frame, rpc::Connection* conn) 
 void GameService::SavePlayerAsync(const std::string& player_id) {
     PlayerState st;
     st.player_id = player_id;
-    if (!world_->GetSnapshot(player_id, &st.x, &st.y, &st.z, &st.yaw, &st.wood, &st.stone))
+    if (!world_->GetSnapshot(player_id, &st.x, &st.y, &st.z, &st.yaw, &st.wood, &st.stone,
+                             &st.dirt, &st.copper, &st.tool_level))
         return;
     db_worker_->Post([this, st]() {
         auto r = players_->Upsert(st);

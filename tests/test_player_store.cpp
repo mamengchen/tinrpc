@@ -41,6 +41,9 @@ void TestUpsertAndLoad() {
     st.yaw = 90.f;
     st.wood = 9;
     st.stone = 4;
+    st.dirt = 17;
+    st.copper = 5;
+    st.tool_level = 2;
     auto up = store.Upsert(st);
     CHECK(up.ok);
 
@@ -51,6 +54,9 @@ void TestUpsertAndLoad() {
     CHECK(std::fabs(loaded.yaw - 90.f) < 1e-3f);
     CHECK(loaded.wood == 9);
     CHECK(loaded.stone == 4);
+    CHECK(loaded.dirt == 17);
+    CHECK(loaded.copper == 5);
+    CHECK(loaded.tool_level == 2);
 
     auto missing = store.Load("no_such_player_zzz");
     CHECK(!missing.found);

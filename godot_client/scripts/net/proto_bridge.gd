@@ -120,6 +120,34 @@ static func decode_voxel_edit_ntf(body: PackedByteArray) -> Dictionary:
 	return decode_voxel_edit(_first_nested(body))
 
 
+static func decode_voxel_edit_res(body: PackedByteArray) -> Dictionary:
+	var result := {"success": false, "error_msg": "", "inventory": {"wood": 0, "stone": 0, "dirt": 0, "copper": 0}}
+	var offset := 0
+	while offset < body.size():
+		var field := _read_field_header(body, offset)
+		if not field["ok"]: break
+		offset = field["offset"]
+		if field["number"] == 1 and field["wire_type"] == WIRE_VARINT:
+			var value := _read_varint(body, offset)
+			if not value["ok"]: break
+			result["success"] = value["value"] != 0
+			offset = value["offset"]
+		elif field["number"] == 2 and field["wire_type"] == WIRE_LENGTH_DELIMITED:
+			var value := _read_length_delimited(body, offset)
+			if not value["ok"]: break
+			result["error_msg"] = value["value"].get_string_from_utf8()
+			offset = value["offset"]
+		elif field["number"] == 4 and field["wire_type"] == WIRE_LENGTH_DELIMITED:
+			var value := _read_length_delimited(body, offset)
+			if not value["ok"]: break
+			result["inventory"] = _decode_inventory(value["value"])
+			offset = value["offset"]
+		else:
+			offset = _skip_value(body, offset, field["wire_type"])
+			if offset < 0: break
+	return result
+
+
 static func encode_select_map_req(room_id: String, map_id: int) -> PackedByteArray:
 	var result := _encode_length_delimited_field(1, room_id.to_utf8_buffer())
 	result.append_array(_encode_varint_field(2, map_id))
@@ -232,6 +260,7 @@ static func decode_world_state(body: PackedByteArray) -> Dictionary:
 	var resources: Array[Dictionary] = []
 	var buildings: Array[Dictionary] = []
 	var voxel_edits: Array[Dictionary] = []
+	var inventory := {"wood": 0, "stone": 0, "dirt": 0, "copper": 0}
 	var offset := 0
 	while offset < body.size():
 		var field := _read_field_header(body, offset)
@@ -261,15 +290,28 @@ static func decode_world_state(body: PackedByteArray) -> Dictionary:
 			if not edit["ok"]: break
 			voxel_edits.append(decode_voxel_edit(edit["value"]))
 			offset = edit["offset"]
+		elif field["number"] == 5 and field["wire_type"] == WIRE_LENGTH_DELIMITED:
+			var value := _read_length_delimited(body, offset)
+			if not value["ok"]: break
+			inventory = _decode_inventory(value["value"])
+			offset = value["offset"]
 		else:
 			offset = _skip_value(body, offset, field["wire_type"])
 			if offset < 0:
 				break
-	return {"players": players, "resources": resources, "buildings": buildings, "voxel_edits": voxel_edits}
+	return {"players": players, "resources": resources, "buildings": buildings, "voxel_edits": voxel_edits, "inventory": inventory}
 
 
 static func encode_gather_req(resource_id: String) -> PackedByteArray:
 	return _encode_length_delimited_field(1, resource_id.to_utf8_buffer())
+
+
+static func encode_craft_req(recipe_id: int) -> PackedByteArray:
+	return _encode_varint_field(1, recipe_id)
+
+
+static func decode_craft_res(body: PackedByteArray) -> Dictionary:
+	return _decode_action_res(body, false)
 
 
 static func encode_place_building_req(building_type: int, position: Vector3, yaw: float) -> PackedByteArray:
@@ -358,7 +400,7 @@ static func decode_building_placed(body: PackedByteArray) -> Dictionary:
 
 
 static func _decode_action_res(body: PackedByteArray, is_gather: bool) -> Dictionary:
-	var result := {"success": false, "error_msg": "", "inventory": {"wood": 0, "stone": 0}}
+	var result := {"success": false, "error_msg": "", "inventory": {"wood": 0, "stone": 0, "dirt": 0, "copper": 0}}
 	result["resource" if is_gather else "building"] = {}
 	var offset := 0
 	while offset < body.size():
@@ -392,16 +434,17 @@ static func _decode_action_res(body: PackedByteArray, is_gather: bool) -> Dictio
 
 
 static func _decode_inventory(body: PackedByteArray) -> Dictionary:
-	var result := {"wood": 0, "stone": 0}
+	var result := {"wood": 0, "stone": 0, "dirt": 0, "copper": 0, "tool_level": 0}
 	var offset := 0
 	while offset < body.size():
 		var field := _read_field_header(body, offset)
 		if not field["ok"]: break
 		offset = field["offset"]
-		if (field["number"] == 1 or field["number"] == 2) and field["wire_type"] == WIRE_VARINT:
+		if field["number"] >= 1 and field["number"] <= 5 and field["wire_type"] == WIRE_VARINT:
 			var value := _read_varint(body, offset)
 			if not value["ok"]: break
-			result["wood" if field["number"] == 1 else "stone"] = value["value"]
+			var names := ["", "wood", "stone", "dirt", "copper", "tool_level"]
+			result[names[field["number"]]] = value["value"]
 			offset = value["offset"]
 		else:
 			offset = _skip_value(body, offset, field["wire_type"])

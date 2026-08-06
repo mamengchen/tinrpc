@@ -99,6 +99,12 @@ PlayerState PlayerStore::Load(const std::string& player_id) {
             st.wood = bson_iter_int32(&it);
         if (bson_iter_init_find(&it, doc, "stone") && BSON_ITER_HOLDS_INT32(&it))
             st.stone = bson_iter_int32(&it);
+        if (bson_iter_init_find(&it, doc, "dirt") && BSON_ITER_HOLDS_INT32(&it))
+            st.dirt = bson_iter_int32(&it);
+        if (bson_iter_init_find(&it, doc, "copper") && BSON_ITER_HOLDS_INT32(&it))
+            st.copper = bson_iter_int32(&it);
+        if (bson_iter_init_find(&it, doc, "tool_level") && BSON_ITER_HOLDS_INT32(&it))
+            st.tool_level = bson_iter_int32(&it);
     }
 
     mongoc_cursor_destroy(cursor);
@@ -128,6 +134,9 @@ PlayerStore::Result PlayerStore::Upsert(const PlayerState& state) {
     BSON_APPEND_DOUBLE(&doc, "yaw", state.yaw);
     BSON_APPEND_INT32(&doc, "wood", state.wood);
     BSON_APPEND_INT32(&doc, "stone", state.stone);
+    BSON_APPEND_INT32(&doc, "dirt", state.dirt);
+    BSON_APPEND_INT32(&doc, "copper", state.copper);
+    BSON_APPEND_INT32(&doc, "tool_level", state.tool_level);
     BSON_APPEND_DATE_TIME(&doc, "updated_at", ms);
 
     bson_t opts = BSON_INITIALIZER;

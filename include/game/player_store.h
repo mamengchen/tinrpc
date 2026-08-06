@@ -10,6 +10,9 @@ struct PlayerState {
     float yaw = 0;
     int wood = 6;
     int stone = 3;
+    int dirt = 12;
+    int copper = 0;
+    int tool_level = 0;
     bool found = false;
 };
 

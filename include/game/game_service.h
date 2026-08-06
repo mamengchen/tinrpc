@@ -71,6 +71,7 @@ private:
     void HandleMove(const rpc::Frame& frame, rpc::Connection* conn);
     void HandleGather(const rpc::Frame& frame, rpc::Connection* conn);
     void HandlePlaceBuilding(const rpc::Frame& frame, rpc::Connection* conn);
+    void HandleCraft(const rpc::Frame& frame, rpc::Connection* conn);
 
     int64_t NowMs() const;
     void SendToPlayer(const std::string& player_id, const std::string& method,

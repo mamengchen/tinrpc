@@ -115,15 +115,16 @@ void WorldService::Enter(const std::string& player_id, const std::string& name, 
     if (existing != players_.end()) {
         EnterWithState(player_id, name, now_ms, existing->second.x, existing->second.y,
                        existing->second.z, existing->second.yaw, existing->second.wood,
-                       existing->second.stone);
+                       existing->second.stone, existing->second.dirt, existing->second.copper,
+                       existing->second.tool_level);
         return;
     }
-    EnterWithState(player_id, name, now_ms, x, 0.f, z, 0.f, 6, 3);
+    EnterWithState(player_id, name, now_ms, x, 0.f, z, 0.f, 6, 3, 12, 0);
 }
 
 void WorldService::EnterWithState(const std::string& player_id, const std::string& name,
                                   int64_t now_ms, float x, float y, float z, float yaw, int wood,
-                                  int stone) {
+                                  int stone, int dirt, int copper, int tool_level) {
     auto [it, inserted] = players_.try_emplace(player_id);
     Player& player = it->second;
     player.player_id = player_id;
@@ -134,6 +135,9 @@ void WorldService::EnterWithState(const std::string& player_id, const std::strin
     player.yaw = yaw;
     player.wood = wood;
     player.stone = stone;
+    player.dirt = dirt;
+    player.copper = copper;
+    player.tool_level = tool_level;
     player.last_move_ms = now_ms;
     player.move_allowance = kInitialMoveAllowance;
     player.last_broadcast_ms = now_ms - kMinBroadcastIntervalMs;
@@ -169,7 +173,8 @@ bool WorldService::SelectRoom(const std::string& player_id, const std::string& r
 }
 
 bool WorldService::GetSnapshot(const std::string& player_id, float* x, float* y, float* z,
-                               float* yaw, int* wood, int* stone) const {
+                               float* yaw, int* wood, int* stone, int* dirt, int* copper,
+                               int* tool_level) const {
     auto it = players_.find(player_id);
     if (it == players_.end())
         return false;
@@ -186,6 +191,12 @@ bool WorldService::GetSnapshot(const std::string& player_id, float* x, float* y,
         *wood = p.wood;
     if (stone)
         *stone = p.stone;
+    if (dirt)
+        *dirt = p.dirt;
+    if (copper)
+        *copper = p.copper;
+    if (tool_level)
+        *tool_level = p.tool_level;
     return true;
 }
 
@@ -316,6 +327,29 @@ bool WorldService::HasPlayer(const std::string& player_id) const {
     return players_.find(player_id) != players_.end();
 }
 
+CraftApplyResult WorldService::TryCraft(const std::string& player_id, int recipe_id) {
+    CraftApplyResult result;
+    auto it = players_.find(player_id);
+    if (it == players_.end()) { result.error_msg = "player is not in world"; return result; }
+    Player& p = it->second;
+    int wood_cost = 2, stone_cost = 0, copper_cost = 0, required_level = 0;
+    if (recipe_id == 1) required_level = 0;
+    else if (recipe_id == 2) { stone_cost = 5; required_level = 1; }
+    else if (recipe_id == 3) { copper_cost = 5; required_level = 2; }
+    else { result.error_msg = "invalid recipe"; return result; }
+    if (p.tool_level >= recipe_id) { result.error_msg = "tool already crafted"; return result; }
+    if (p.tool_level < required_level) { result.error_msg = "previous tool required"; return result; }
+    if (p.wood < wood_cost || p.stone < stone_cost || p.copper < copper_cost) {
+        result.error_msg = "not enough material"; return result;
+    }
+    p.wood -= wood_cost; p.stone -= stone_cost; p.copper -= copper_cost;
+    p.tool_level = recipe_id;
+    result.success = true;
+    result.wood = p.wood; result.stone = p.stone; result.dirt = p.dirt;
+    result.copper = p.copper; result.tool_level = p.tool_level;
+    return result;
+}
+
 void WorldService::SendWorldStateTo(const std::string& to) {
     WorldStateNtf state;
     for (const auto& [_, player] : players_) {
@@ -350,6 +384,12 @@ void WorldService::SendWorldStateTo(const std::string& to) {
             out->set_x(edit.x); out->set_y(edit.y); out->set_z(edit.z);
             out->set_action(edit.action); out->set_block_type(edit.block_type);
         }
+        auto* inventory = state.mutable_inventory();
+        inventory->set_wood(target->second.wood);
+        inventory->set_stone(target->second.stone);
+        inventory->set_dirt(target->second.dirt);
+        inventory->set_copper(target->second.copper);
+        inventory->set_tool_level(target->second.tool_level);
     }
     std::string buffer;
     state.SerializeToString(&buffer);
@@ -357,20 +397,51 @@ void WorldService::SendWorldStateTo(const std::string& to) {
 }
 
 bool WorldService::ApplyVoxelEdit(const std::string& player_id, int x, int y, int z, int action,
-                                  int block_type, std::string* error_msg) {
+                                  int block_type, std::string* error_msg, int* wood, int* stone,
+                                  int* dirt, int* copper) {
     auto it = players_.find(player_id);
     if (it == players_.end()) { if (error_msg) *error_msg = "player is not in world"; return false; }
-    const Player& player = it->second;
+    Player& player = it->second;
     if (std::hypot(static_cast<float>(x) - player.x, static_cast<float>(z) - player.z) > 5.0f) {
         if (error_msg) *error_msg = "block is too far away"; return false;
     }
     if ((action != 1 && action != 2) || block_type < 0 || block_type > 5 || y < -1 || y > 4) {
         if (error_msg) *error_msg = "invalid voxel edit"; return false;
     }
-    VoxelEditState edit{x, y, z, action, block_type};
     const std::string key = std::to_string(x) + ":" + std::to_string(y) + ":" + std::to_string(z);
-    voxel_edits_[player.room_id][key] = edit;
+    auto& room_edits = voxel_edits_[player.room_id];
+    auto previous = room_edits.find(key);
+    if (action == 1 && previous != room_edits.end() && previous->second.action == 1) {
+        if (error_msg) *error_msg = "block already removed"; return false;
+    }
+    if (action == 2 && previous != room_edits.end() && previous->second.action == 2) {
+        if (error_msg) *error_msg = "block occupied"; return false;
+    }
+
+    int effective_type = block_type;
+    if (action == 1) {
+        if (previous != room_edits.end() && previous->second.action == 2)
+            effective_type = previous->second.block_type;
+        if (effective_type == 1 || effective_type == 2) ++player.dirt;
+        else if (effective_type == 3) ++player.stone;
+        else if (effective_type == 4) ++player.wood;
+        else if (effective_type == 5) ++player.copper;
+    } else {
+        int* material = nullptr;
+        if (block_type == 2) material = &player.dirt;
+        else if (block_type == 3) material = &player.stone;
+        else if (block_type == 4) material = &player.wood;
+        else { if (error_msg) *error_msg = "unsupported place material"; return false; }
+        if (*material <= 0) { if (error_msg) *error_msg = "not enough material"; return false; }
+        --*material;
+    }
+    VoxelEditState edit{x, y, z, action, effective_type};
+    room_edits[key] = edit;
     BroadcastVoxelEdit(player.room_id, edit);
+    if (wood) *wood = player.wood;
+    if (stone) *stone = player.stone;
+    if (dirt) *dirt = player.dirt;
+    if (copper) *copper = player.copper;
     return true;
 }
 
