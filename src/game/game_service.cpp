@@ -218,6 +218,7 @@ void GameService::HandleVoxelEdit(const rpc::Frame& frame, rpc::Connection* conn
     const bool parsed = req.ParseFromArray(frame.body.data(), static_cast<int>(frame.body.size()));
     const bool ok = player != fd_to_player_.end() && parsed &&
         world_->ApplyVoxelEdit(player->second, req.x(), req.y(), req.z(), req.action(), req.block_type(), &error);
+    if (ok) SaveSceneAsync();
     res.set_success(ok); res.set_error_msg(error);
     if (parsed) { auto* e=res.mutable_edit(); e->set_x(req.x()); e->set_y(req.y()); e->set_z(req.z()); e->set_action(req.action()); e->set_block_type(req.block_type()); }
     std::string buf; res.SerializeToString(&buf);
